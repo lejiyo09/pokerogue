@@ -2,6 +2,8 @@
 
 // biome-ignore lint/style/useNamingConvention: HTTP and URL are fullcaps acronyms
 type HTTP_URL = `http${"" | "s"}://${string}`;
+// biome-ignore lint/style/useNamingConvention: WS and URL are fullcaps acronyms
+type WS_URL = `ws${"" | "s"}://${string}`;
 
 // Declaration merging for vite's `import.meta.env`.
 
@@ -14,6 +16,8 @@ interface ImportMetaEnv {
   readonly VITE_BYPASS_TUTORIAL?: "0" | "1";
   readonly VITE_API_BASE_URL?: HTTP_URL;
   readonly VITE_SERVER_URL?: HTTP_URL;
+  /** WebSocket endpoint for the online PvP server. @see docs/pvp-online-battle-design.md §6.1 */
+  readonly VITE_PVP_SERVER_URL?: WS_URL;
   readonly VITE_DISCORD_CLIENT_ID?: string;
   readonly VITE_GOOGLE_CLIENT_ID?: string;
   readonly VITE_I18N_DEBUG?: "0" | "1";

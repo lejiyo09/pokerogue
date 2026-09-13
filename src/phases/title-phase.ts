@@ -14,11 +14,16 @@ import { Gender } from "#data/gender";
 import { BattleType } from "#enums/battle-type";
 import { GameModes } from "#enums/game-modes";
 import { ModifierPoolType } from "#enums/modifier-pool-type";
+import { MoveId } from "#enums/move-id";
+import { SpeciesId } from "#enums/species-id";
 import { UiMode } from "#enums/ui-mode";
 import { Unlockables } from "#enums/unlockables";
 import { getBiomeKey } from "#field/arena";
 import type { Modifier } from "#modifiers/modifier";
 import { getDailyRunStarterModifiers, regenerateModifierPoolThresholds } from "#modifiers/modifier-type";
+import type { BattleStartMessage, PvpMode } from "#net/pvp-protocol-types";
+import { PvpRoomManager } from "#net/pvp-room-manager";
+import { getPvpSession, setPvpSession } from "#net/pvp-session";
 import { vouchers } from "#system/voucher";
 import type { OptionSelectItem, OptionSelectModeConfig } from "#types/ui-types";
 import { SaveSlotUiMode } from "#ui/save-slot-select-ui-handler";
@@ -183,6 +188,15 @@ export class TitlePhase extends Phase {
         label: i18next.t("menu:settings"),
         handler: () => {
           ui.setOverlayMode(UiMode.SETTINGS_GENERAL);
+          return true;
+        },
+        keepOpen: true,
+      },
+      {
+        // TODO: Localize once this feature is out of early development (see docs/pvp-online-battle-design.md).
+        label: "PvP Battle (beta)",
+        handler: () => {
+          this.showPvpMenu();
           return true;
         },
         keepOpen: true,
@@ -396,4 +410,127 @@ export class TitlePhase extends Phase {
 
     super.end();
   }
+
+  // #region PvP (see docs/pvp-online-battle-design.md - MVP step 1)
+  //
+  // This wires up the room/team/ready handshake against a PvP server end-to-end.
+  // Actually constructing live battle Pokemon and starting the turn loop from a `BATTLE_START`
+  // message is intentionally out of scope for this step (see MVP step 6 in the design doc) -
+  // this only proves the network handshake works, using a fixed template team.
+
+  private showPvpMenu(): void {
+    const { ui } = globalScene;
+    const pvpOptions: OptionSelectItem[] = [
+      {
+        label: "Create Room (Single Battle)",
+        handler: () => {
+          this.startPvpCreateRoom("single");
+          return true;
+        },
+      },
+      {
+        label: "Join Room by Code",
+        handler: () => {
+          this.startPvpJoinRoom();
+          return true;
+        },
+      },
+      {
+        label: i18next.t("menu:cancel"),
+        handler: () => {
+          globalScene.phaseManager.toTitleScreen();
+          return true;
+        },
+      },
+    ];
+    const config: OptionSelectModeConfig = { options: pvpOptions, yOffset: 48 };
+    ui.setOverlayMode(UiMode.OPTION_SELECT, config);
+  }
+
+  private startPvpCreateRoom(mode: PvpMode): void {
+    const { ui } = globalScene;
+    const session = new PvpRoomManager();
+    setPvpSession(session);
+
+    ui.setMode(UiMode.MESSAGE);
+    ui.showText("Connecting to the PvP server...");
+
+    session
+      .createRoom(mode)
+      .then(roomId => {
+        ui.showText(`Room code: ${roomId}\nWaiting for an opponent to join...`);
+        this.waitForPvpRoomReady(session);
+      })
+      .catch((error: Error) => this.abortPvpSetup(error));
+  }
+
+  private startPvpJoinRoom(): void {
+    const session = new PvpRoomManager();
+    setPvpSession(session);
+
+    globalScene.ui.setOverlayMode(UiMode.PVP_JOIN_FORM, {
+      buttonActions: [
+        () => {
+          globalScene.ui.revertMode();
+          this.waitForPvpRoomReady(session);
+        },
+        () => {
+          setPvpSession(null);
+          globalScene.ui.revertMode();
+        },
+      ],
+    });
+  }
+
+  private waitForPvpRoomReady(session: PvpRoomManager): void {
+    const { ui } = globalScene;
+    ui.setMode(UiMode.MESSAGE);
+    ui.showText("Waiting for the opponent...");
+
+    session.onRoomReady(() => this.submitFixedPvpTeamAndReady(session));
+    session.onOpponentDisconnected(() => this.abortPvpSetup(new Error("The opponent disconnected.")));
+  }
+
+  private submitFixedPvpTeamAndReady(session: PvpRoomManager): void {
+    const { ui } = globalScene;
+
+    // MVP: a fixed template team, rather than a full team-builder UI (see design doc §10, step 1).
+    session.submitTeam([
+      { species: SpeciesId.PIKACHU, level: 50, moves: [MoveId.THUNDERBOLT, MoveId.QUICK_ATTACK, MoveId.IRON_TAIL] },
+    ]);
+    session.ready();
+
+    ui.showText("Waiting for the opponent to be ready...");
+    session.onBattleStart(message => this.beginPvpBattle(session, message));
+  }
+
+  private beginPvpBattle(session: PvpRoomManager, message: BattleStartMessage): void {
+    const { ui } = globalScene;
+
+    // Proves the room -> team -> ready -> BATTLE_START handshake, and that a `PvpBattle` can be
+    // constructed from the server-issued seed. Populating live Pokemon and actually running the
+    // turn loop is implemented in a later step.
+    globalScene.newPvpBattle(message.battleSeed, message.double);
+
+    ui.showText(
+      `Battle starting! (seed: ${message.battleSeed})\nLive PvP battles are not yet implemented.`,
+      null,
+      () => {
+        session.leave();
+        setPvpSession(null);
+        globalScene.phaseManager.toTitleScreen();
+      },
+    );
+  }
+
+  private abortPvpSetup(error: Error): void {
+    console.error("PvP setup failed:", error);
+    getPvpSession()?.leave();
+    setPvpSession(null);
+    globalScene.ui.showText(`Could not connect to the PvP server:\n${error.message}`, null, () =>
+      this.showOptions(NO_SAVE_SLOT),
+    );
+  }
+
+  // #endregion PvP
 }
