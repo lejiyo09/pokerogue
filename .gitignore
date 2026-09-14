@@ -18,7 +18,6 @@ dist-ssr
 *.local
 build
 .pnpm-store
-.wrangler
 
 # Editor/OS directories and files (excluding `extensions.json` for devcontainer)
 *.code-workspace
