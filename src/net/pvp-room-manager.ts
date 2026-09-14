@@ -24,6 +24,8 @@ export type PvpRoomState =
 interface PendingTurnWaiter {
   battlerIndex: BattlerIndex;
   resolve: (dto: TurnCommandDto) => void;
+  reject: (error: Error) => void;
+  timeoutHandle: ReturnType<typeof setTimeout>;
 }
 
 /**
@@ -34,7 +36,16 @@ interface PendingTurnWaiter {
  * @see docs/pvp-online-battle-design.md §6, §9.1, §9.3
  */
 export class PvpRoomManager {
+  /**
+   * How long {@linkcode waitForTurnCommand} will wait for the opponent's command before giving up
+   * and rejecting - see R4 fix notes (docs/pvp-online-battle-design.md). Generous by design: a
+   * human opponent taking their time to pick a move is normal, not a bug - this only exists to
+   * guarantee a *hung connection* can never leave `RemoteCommandWaitPhase` waiting forever.
+   */
+  public static readonly DEFAULT_TURN_TIMEOUT_MS = 5 * 60 * 1000;
+
   private readonly socket: BattleSocketClient;
+  private readonly turnTimeoutMs: number;
   private state: PvpRoomState = "idle";
   private roomId: string | null = null;
 
@@ -43,9 +54,17 @@ export class PvpRoomManager {
   /** Callers currently awaiting a not-yet-received turn's command, keyed by turn number. */
   private readonly turnWaiters = new Map<number, PendingTurnWaiter[]>();
 
-  constructor(socket: BattleSocketClient = new BattleSocketClient()) {
+  constructor(
+    socket: BattleSocketClient = new BattleSocketClient(),
+    turnTimeoutMs = PvpRoomManager.DEFAULT_TURN_TIMEOUT_MS,
+  ) {
     this.socket = socket;
+    this.turnTimeoutMs = turnTimeoutMs;
     this.socket.on("TURN_READY", message => this.handleTurnReady(message));
+    // Guarantee every pending `waitForTurnCommand` promise settles - never hangs forever - the
+    // moment the connection to the opponent is known to be gone (R4 fix notes).
+    this.socket.on("DISCONNECT", () => this.rejectAllWaiters(new Error("The opponent disconnected")));
+    this.socket.on("BATTLE_END", () => this.rejectAllWaiters(new Error("The battle has ended")));
   }
 
   public getState(): PvpRoomState {
@@ -128,7 +147,7 @@ export class PvpRoomManager {
     this.state = "idle";
     this.roomId = null;
     this.receivedTurns.clear();
-    this.turnWaiters.clear();
+    this.rejectAllWaiters(new Error("Left the PvP session"));
   }
 
   /** Register a listener invoked once every seat in the room is filled and team selection can begin. */
@@ -184,6 +203,11 @@ export class PvpRoomManager {
    * by `EnemyCommandPhase`.
    *
    * Safe to call either before or after the corresponding `TURN_READY` message has arrived.
+   *
+   * The returned promise is *guaranteed* to eventually settle - never hang forever - even if the
+   * opponent's command never arrives: it rejects on a {@linkcode turnTimeoutMs} timeout, on the
+   * opponent disconnecting, on the battle ending, or on {@linkcode leave} being called (see R4 fix
+   * notes, docs/pvp-online-battle-design.md).
    */
   public waitForTurnCommand(turn: number, battlerIndex: BattlerIndex): Promise<TurnCommandDto> {
     const buffered = this.receivedTurns.get(turn)?.[battlerIndex];
@@ -191,11 +215,44 @@ export class PvpRoomManager {
       return Promise.resolve(buffered);
     }
 
-    return new Promise(resolve => {
+    return new Promise((resolve, reject) => {
+      const waiter: PendingTurnWaiter = {
+        battlerIndex,
+        resolve,
+        reject,
+        timeoutHandle: setTimeout(() => {
+          this.removeWaiter(turn, waiter);
+          reject(new Error(`Timed out waiting for the opponent's turn ${turn} command`));
+        }, this.turnTimeoutMs),
+      };
       const waiters = this.turnWaiters.get(turn) ?? [];
-      waiters.push({ battlerIndex, resolve });
+      waiters.push(waiter);
       this.turnWaiters.set(turn, waiters);
     });
+  }
+
+  private removeWaiter(turn: number, waiter: PendingTurnWaiter): void {
+    const waiters = this.turnWaiters.get(turn);
+    if (!waiters) {
+      return;
+    }
+    const remaining = waiters.filter(w => w !== waiter);
+    if (remaining.length > 0) {
+      this.turnWaiters.set(turn, remaining);
+    } else {
+      this.turnWaiters.delete(turn);
+    }
+  }
+
+  /** Reject every currently-pending {@linkcode waitForTurnCommand} call with `error`. */
+  private rejectAllWaiters(error: Error): void {
+    for (const waiters of this.turnWaiters.values()) {
+      for (const waiter of waiters) {
+        clearTimeout(waiter.timeoutHandle);
+        waiter.reject(error);
+      }
+    }
+    this.turnWaiters.clear();
   }
 
   private handleTurnReady(message: TurnReadyMessage): void {
@@ -207,13 +264,21 @@ export class PvpRoomManager {
     if (!waiters) {
       return;
     }
+    const stillPending: PendingTurnWaiter[] = [];
     for (const waiter of waiters) {
       const dto = message.commands[waiter.battlerIndex];
       if (dto) {
+        clearTimeout(waiter.timeoutHandle);
         waiter.resolve(dto);
+      } else {
+        stillPending.push(waiter);
       }
     }
-    this.turnWaiters.delete(message.turn);
+    if (stillPending.length > 0) {
+      this.turnWaiters.set(message.turn, stillPending);
+    } else {
+      this.turnWaiters.delete(message.turn);
+    }
   }
 
   private assertRoomId(): string {

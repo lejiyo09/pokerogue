@@ -27,11 +27,27 @@ export interface TurnCommandDto {
   targets?: number[];
 }
 
-/** Mirrors the client's `PvpPartyMemberDto`. */
+/**
+ * Mirrors the client's `PvpPartyMemberDto`.
+ *
+ * Beyond `species`/`level`/`moves`, this also carries every field that the battle engine's own
+ * Pokémon construction would otherwise randomize client-side (`id`, `ivs`, `abilityIndex`, etc.) -
+ * without them, the two clients would each construct a *different* random Pokémon for the same
+ * DTO, silently desyncing the battle (see docs/pvp-online-battle-design.md, R1 fix notes). The
+ * server never reads these fields; it only relays them.
+ */
 export interface PvpPartyMemberDto {
   species: number;
   level: number;
   moves: number[];
+  id: number;
+  abilityIndex: number;
+  formIndex: number;
+  gender: number;
+  shiny: boolean;
+  variant: number;
+  ivs: number[];
+  nature: number;
 }
 
 // #region Client -> Server messages

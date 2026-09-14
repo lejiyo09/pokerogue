@@ -8,10 +8,13 @@
  * @module
  */
 
+import type { Gender } from "#data/gender";
 import type { BattlerIndex } from "#enums/battler-index";
 import type { Command } from "#enums/command";
 import type { MoveId } from "#enums/move-id";
+import type { Nature } from "#enums/nature";
 import type { SpeciesId } from "#enums/species-id";
+import type { Variant } from "#sprites/variant";
 
 /** Whether a PvP match is a single (1v1) or double (2v2) battle. */
 export type PvpMode = "single" | "double";
@@ -31,11 +34,30 @@ export interface TurnCommandDto {
   targets?: BattlerIndex[];
 }
 
-/** A single Pokémon submitted as part of a player's PvP team. */
+/**
+ * A single Pokémon submitted as part of a player's PvP team.
+ *
+ * Beyond the visible `species`/`level`/`moves`, this also pins down every field the battle
+ * engine's own Pokémon construction would otherwise randomize (`id`, IVs, ability, form, gender,
+ * shininess/variant, nature). Both clients build this Pokémon from the *same* DTO - one as a
+ * `PlayerPokemon` (the owner's own client), the other as an `EnemyPokemon` (the opponent's client)
+ * - so without these fields being explicit and shared, the two clients would each roll their own
+ * random values and silently desync the battle. See {@linkcode generatePvpPartyMemberDto} in
+ * `#net/pvp-team-setup` (generates these once, from a real Pokémon construction) and
+ * `docs/pvp-online-battle-design.md`.
+ */
 export interface PvpPartyMemberDto {
   species: SpeciesId;
   level: number;
   moves: MoveId[];
+  id: number;
+  abilityIndex: number;
+  formIndex: number;
+  gender: Gender;
+  shiny: boolean;
+  variant: Variant;
+  ivs: number[];
+  nature: Nature;
 }
 
 // #region Client -> Server messages

@@ -24,7 +24,7 @@ import { getDailyRunStarterModifiers, regenerateModifierPoolThresholds } from "#
 import type { BattleStartMessage, PvpMode, PvpPartyMemberDto } from "#net/pvp-protocol-types";
 import { PvpRoomManager } from "#net/pvp-room-manager";
 import { getPvpSession, setPvpSession } from "#net/pvp-session";
-import { setUpPvpParty } from "#net/pvp-team-setup";
+import { generatePvpPartyMemberDto, setUpPvpParty } from "#net/pvp-team-setup";
 import { vouchers } from "#system/voucher";
 import type { OptionSelectItem, OptionSelectModeConfig } from "#types/ui-types";
 import { SaveSlotUiMode } from "#ui/save-slot-select-ui-handler";
@@ -500,7 +500,7 @@ export class TitlePhase extends Phase {
     const { ui } = globalScene;
 
     const myTeam: PvpPartyMemberDto[] = [
-      { species: SpeciesId.PIKACHU, level: 50, moves: [MoveId.THUNDERBOLT, MoveId.QUICK_ATTACK, MoveId.IRON_TAIL] },
+      generatePvpPartyMemberDto(SpeciesId.PIKACHU, 50, [MoveId.THUNDERBOLT, MoveId.QUICK_ATTACK, MoveId.IRON_TAIL]),
     ];
     session.submitTeam(myTeam);
     session.ready();

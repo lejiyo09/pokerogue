@@ -53,7 +53,33 @@ export class RemoteCommandWaitPhase extends FieldPhase {
     const turn = globalScene.currentBattle.turn;
     this.sendOwnCommand(session, turn);
 
-    const dto = await session.waitForTurnCommand(turn, BattlerIndex.ENEMY + this.fieldIndex);
+    let dto: TurnCommandDto;
+    try {
+      dto = await session.waitForTurnCommand(turn, BattlerIndex.ENEMY + this.fieldIndex);
+    } catch (error) {
+      // The opponent's command may never arrive (disconnect, a hung client, the battle having
+      // ended) - `waitForTurnCommand` is guaranteed to eventually reject rather than hang forever
+      // in that case (see `PvpRoomManager`, R4 fix notes). This phase must still never permanently
+      // occupy a phase slot, so always fall through to `this.end()` below regardless.
+      console.error(`RemoteCommandWaitPhase: failed to receive the opponent's turn ${turn} command:`, error);
+      try {
+        // Ask the server to end the match through the existing FORFEIT -> BATTLE_END path, which
+        // `TitlePhase.beginPvpBattle`'s `onBattleEnd` handler already reacts to - reusing that
+        // existing teardown/UI flow rather than introducing a new PvP-specific end phase. This is
+        // a best-effort call: if the socket is already closed (e.g. the opponent disconnected),
+        // there is nothing left to notify.
+        session.forfeit();
+      } catch {
+        // Socket already closed - nothing more to send.
+      }
+      globalScene.currentBattle.turnCommands[BattlerIndex.ENEMY + this.fieldIndex] = {
+        command: Command.FIGHT,
+        skip: true,
+      };
+      this.end();
+      return;
+    }
+
     globalScene.currentBattle.turnCommands[BattlerIndex.ENEMY + this.fieldIndex] =
       RemoteCommandWaitPhase.toTurnCommand(dto);
     this.end();
