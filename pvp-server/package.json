@@ -11,13 +11,13 @@
     "test": "node --test --import tsx test/*.test.ts"
   },
   "dependencies": {
+    "tsx": "^4.19.2",
     "ws": "^8.18.0",
     "zod": "^4.6.5"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
     "@types/ws": "^8.5.13",
-    "tsx": "^4.19.2",
     "typescript": "^5.7.2"
   }
 }

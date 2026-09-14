@@ -57,6 +57,38 @@ pnpm run dev   # ws://localhost:8081 by default; set PORT to override
 Point the client at it via `VITE_PVP_SERVER_URL=ws://localhost:8081` (see the client's
 `src/vite.env.d.ts` and `.env.development`).
 
+## Deploying (e.g. Render Free Web Service)
+
+The server binds to `0.0.0.0` and reads its port from the `PORT` environment variable (falling
+back to `8081` when unset, for local dev) - this is exactly what a platform like Render expects
+from a Node web service. `tsx` (needed to run `npm start` directly against the TypeScript source,
+with no separate build step) is a regular `dependencies` entry rather than a `devDependencies` one,
+since `npm install` skips `devDependencies` when `NODE_ENV=production` is set, as it typically is
+on Render.
+
+Suggested Render settings for this directory:
+
+| Setting | Value |
+| --- | --- |
+| Root Directory | `pvp-server` |
+| Runtime | Node |
+| Build Command | `npm install` |
+| Start Command | `npm start` |
+| Plan | Free |
+| Health Check Path | *(leave blank)* |
+
+No database/Firebase/etc is needed - `RoomManager`/`Room` stay in-memory (see "Known gaps" below
+for what that means for restarts). Once deployed, the client must be pointed at the service's
+`wss://` URL (not `ws://` - a page served over HTTPS cannot open a plain `ws://` connection), e.g.
+`VITE_PVP_SERVER_URL=wss://<your-service>.onrender.com`.
+
+There's no dedicated `/health` endpoint: the `ws` library's implicit HTTP server (created when
+`WebSocketServer` is given a `port` rather than an existing `server`) already answers any plain
+HTTP request with `426 Upgrade Required`, which is enough for Render's default health check (it
+only confirms the port accepts a TCP connection when no Health Check Path is configured). A
+Health Check Path *would* see that `426` as a failure, since it isn't a `2xx` - hence leaving it
+blank above, rather than adding an HTTP endpoint solely to satisfy one.
+
 ## Testing
 
 ```sh
