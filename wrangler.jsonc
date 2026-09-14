@@ -5,6 +5,14 @@
   // with no Vite plugin or Workers runtime involved.
   "name": "pokerogue",
   "compatibility_date": "2026-09-14",
+  // Runs before Wrangler reads the assets directory below, regardless of
+  // whether the Cloudflare project's own dashboard "Build command" is set -
+  // without this, "wrangler deploy"/"wrangler versions upload" errors with
+  // "The directory specified by the assets.directory field ... does not
+  // exist" when nothing has produced dist/ yet.
+  "build": {
+    "command": "pnpm run build"
+  },
   "assets": {
     "directory": "dist",
     "not_found_handling": "single-page-application"
