@@ -1,5 +1,4 @@
 import type { BattlerIndex } from "#enums/battler-index";
-import type { MoveId } from "#enums/move-id";
 import { BattleSocketClient } from "#net/battle-socket-client";
 import type {
   BattleEndMessage,
@@ -38,7 +37,6 @@ export class PvpRoomManager {
   private readonly socket: BattleSocketClient;
   private state: PvpRoomState = "idle";
   private roomId: string | null = null;
-  private yourBattlerIndex: BattlerIndex | null = null;
 
   /** Turn commands already broadcast by the server, keyed by turn number. */
   private readonly receivedTurns = new Map<number, Partial<Record<BattlerIndex, TurnCommandDto>>>();
@@ -56,10 +54,6 @@ export class PvpRoomManager {
 
   public getRoomId(): string | null {
     return this.roomId;
-  }
-
-  public getYourBattlerIndex(): BattlerIndex | null {
-    return this.yourBattlerIndex;
   }
 
   /** Connect to the server and create a new room, resolving with its room code. */
@@ -92,9 +86,8 @@ export class PvpRoomManager {
     await this.socket.connect();
 
     return new Promise((resolve, reject) => {
-      const onJoined = (message: { type: "ROOM_JOINED"; roomId: string; yourBattlerIndex: BattlerIndex }) => {
+      const onJoined = (message: { type: "ROOM_JOINED"; roomId: string }) => {
         this.roomId = message.roomId;
-        this.yourBattlerIndex = message.yourBattlerIndex;
         this.state = "waiting_for_opponent";
         this.socket.off("ROOM_JOINED", onJoined);
         this.socket.off("ERROR", onError);
@@ -149,7 +142,6 @@ export class PvpRoomManager {
   /** Register a listener invoked once when the battle is ready to begin. */
   public onBattleStart(listener: (message: BattleStartMessage) => void): void {
     this.socket.on("BATTLE_START", message => {
-      this.yourBattlerIndex = message.yourBattlerIndex;
       this.state = "in_battle";
       listener(message);
     });
@@ -168,14 +160,12 @@ export class PvpRoomManager {
     this.socket.on("DISCONNECT", listener);
   }
 
-  /** Submit this turn's move command for `fieldIndex` (0, or 1 in double battles). */
-  public sendMove(turn: number, fieldIndex: number, moveId: MoveId, targets: BattlerIndex[]): void {
-    this.socket.send({ type: "SELECT_MOVE", roomId: this.assertRoomId(), turn, fieldIndex, moveId, targets });
-  }
-
-  /** Submit this turn's switch command for `fieldIndex`. */
-  public sendSwitch(turn: number, fieldIndex: number, partyIndex: number): void {
-    this.socket.send({ type: "SELECT_SWITCH", roomId: this.assertRoomId(), turn, fieldIndex, partyIndex });
+  /**
+   * Submit this turn's finalized command for `fieldIndex` (0, or 1 in double battles) - relative
+   * to this client's own side, per {@linkcode SubmitCommandMessage}.
+   */
+  public sendTurnCommand(turn: number, fieldIndex: number, command: TurnCommandDto): void {
+    this.socket.send({ type: "SUBMIT_COMMAND", roomId: this.assertRoomId(), turn, fieldIndex, command });
   }
 
   /** Report this turn's resulting battle state hash for server-side cross-client verification. */

@@ -21,9 +21,10 @@ import { Unlockables } from "#enums/unlockables";
 import { getBiomeKey } from "#field/arena";
 import type { Modifier } from "#modifiers/modifier";
 import { getDailyRunStarterModifiers, regenerateModifierPoolThresholds } from "#modifiers/modifier-type";
-import type { BattleStartMessage, PvpMode } from "#net/pvp-protocol-types";
+import type { BattleStartMessage, PvpMode, PvpPartyMemberDto } from "#net/pvp-protocol-types";
 import { PvpRoomManager } from "#net/pvp-room-manager";
 import { getPvpSession, setPvpSession } from "#net/pvp-session";
+import { setUpPvpParty } from "#net/pvp-team-setup";
 import { vouchers } from "#system/voucher";
 import type { OptionSelectItem, OptionSelectModeConfig } from "#types/ui-types";
 import { SaveSlotUiMode } from "#ui/save-slot-select-ui-handler";
@@ -411,12 +412,11 @@ export class TitlePhase extends Phase {
     super.end();
   }
 
-  // #region PvP (see docs/pvp-online-battle-design.md - MVP step 1)
+  // #region PvP (see docs/pvp-online-battle-design.md)
   //
-  // This wires up the room/team/ready handshake against a PvP server end-to-end.
-  // Actually constructing live battle Pokemon and starting the turn loop from a `BATTLE_START`
-  // message is intentionally out of scope for this step (see MVP step 6 in the design doc) -
-  // this only proves the network handshake works, using a fixed template team.
+  // MVP: a fixed template team rather than a full team-builder UI (design doc §10, step 1).
+  // The team-builder UI, double battles, and a proper reward-free battle-end flow remain
+  // unimplemented - see the summary posted alongside this code for the full "what's not done yet" list.
 
   private showPvpMenu(): void {
     const { ui } = globalScene;
@@ -439,6 +439,10 @@ export class TitlePhase extends Phase {
         label: i18next.t("menu:cancel"),
         handler: () => {
           globalScene.phaseManager.toTitleScreen();
+          // `toTitleScreen()` only queues a fresh `TitlePhase`; it doesn't start it - this
+          // (currently-running) `TitlePhase` still has to end for the phase manager to advance
+          // to it, exactly like the "New Game" submenu's own Cancel button (above) does.
+          super.end();
           return true;
         },
       },
@@ -458,6 +462,7 @@ export class TitlePhase extends Phase {
     session
       .createRoom(mode)
       .then(roomId => {
+        console.log("[PvP] Room code:", roomId);
         ui.showText(`Room code: ${roomId}\nWaiting for an opponent to join...`);
         this.waitForPvpRoomReady(session);
       })
@@ -494,33 +499,65 @@ export class TitlePhase extends Phase {
   private submitFixedPvpTeamAndReady(session: PvpRoomManager): void {
     const { ui } = globalScene;
 
-    // MVP: a fixed template team, rather than a full team-builder UI (see design doc §10, step 1).
-    session.submitTeam([
+    const myTeam: PvpPartyMemberDto[] = [
       { species: SpeciesId.PIKACHU, level: 50, moves: [MoveId.THUNDERBOLT, MoveId.QUICK_ATTACK, MoveId.IRON_TAIL] },
-    ]);
+    ];
+    session.submitTeam(myTeam);
     session.ready();
 
     ui.showText("Waiting for the opponent to be ready...");
-    session.onBattleStart(message => this.beginPvpBattle(session, message));
+    session.onBattleStart(message => this.beginPvpBattle(session, myTeam, message));
   }
 
-  private beginPvpBattle(session: PvpRoomManager, message: BattleStartMessage): void {
+  /**
+   * Construct both sides' live Pokemon from the (fixed-template) teams and start the turn loop,
+   * exactly as `EncounterPhase` would for a normal battle - minus the wild/trainer generation it
+   * doesn't need, since both teams are already fully known (see design doc §9.3).
+   */
+  private beginPvpBattle(session: PvpRoomManager, myTeam: PvpPartyMemberDto[], message: BattleStartMessage): void {
     const { ui } = globalScene;
 
-    // Proves the room -> team -> ready -> BATTLE_START handshake, and that a `PvpBattle` can be
-    // constructed from the server-issued seed. Populating live Pokemon and actually running the
-    // turn loop is implemented in a later step.
     globalScene.newPvpBattle(message.battleSeed, message.double);
+    setUpPvpParty(myTeam, message.opponentTeam);
 
-    ui.showText(
-      `Battle starting! (seed: ${message.battleSeed})\nLive PvP battles are not yet implemented.`,
-      null,
-      () => {
-        session.leave();
-        setPvpSession(null);
-        globalScene.phaseManager.toTitleScreen();
-      },
-    );
+    session.onOpponentDisconnected(() => {
+      ui.showText("The opponent disconnected.", null, () => this.endPvpBattle(session));
+    });
+    session.onBattleEnd(endMessage => {
+      ui.showText(`Battle ended: ${endMessage.reason}`, null, () => this.endPvpBattle(session));
+    });
+
+    ui.setMode(UiMode.MESSAGE);
+    ui.resetModeChain();
+    ui.clearText();
+    globalScene.phaseManager.clearPhaseQueue();
+    // Bring both Pokemon onto the field (SummonPhase), then queue each side's PostSummonPhase
+    // (InitEncounterPhase) - once that queue drains, the PhaseManager automatically starts the
+    // first real TurnInitPhase (see docs/phases.md).
+    globalScene.phaseManager.pushNew("SummonPhase", 0, true);
+    globalScene.phaseManager.pushNew("SummonPhase", 0, false);
+    globalScene.phaseManager.pushNew("InitEncounterPhase");
+    // NOT `this.end()`: `TitlePhase.end()` unconditionally starts a normal run (pushes
+    // `SelectStarterPhase`/`EncounterPhase` based on `this.gameMode`, which is unset here) - it's
+    // only appropriate for the "New Game"/"Load Game" flows. `super.end()` just advances the
+    // phase queue, which is what we want (see docs/phases.md).
+    super.end();
+  }
+
+  /**
+   * Tear down the PvP session on disconnect/forfeit/battle-end.
+   * @remarks
+   * **Known gap:** this does not return to the title screen. Doing so safely requires ending
+   * whichever battle phase happens to be currently running at the (unpredictable) moment the
+   * battle ends - `TitlePhase` has no reference to it, and forcing a transition via
+   * `PhaseManager.shiftPhase()` directly (bypassing that phase's own `end()`) risks a double-end
+   * crash if that phase later tries to end itself normally (e.g. after an in-flight `await`
+   * resolves). See `pvp-server/README.md` "Known gaps" (battle-end handling) - a real fix belongs
+   * with implementing proper win/loss detection, not a workaround here.
+   */
+  private endPvpBattle(session: PvpRoomManager): void {
+    session.leave();
+    setPvpSession(null);
   }
 
   private abortPvpSetup(error: Error): void {

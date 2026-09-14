@@ -33,6 +33,7 @@ ignore:
    - assets
    - locales
    - dist
+   - pvp-server
    - .devcontainer
    - "LICENSES"
    - .idea

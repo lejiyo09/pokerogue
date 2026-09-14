@@ -1,0 +1,22 @@
+{
+  "name": "pokerogue-pvp-server",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Minimal WebSocket server for PokéRogue online PvP battles. See docs/pvp-online-battle-design.md in the client repo for the design this implements.",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "start": "tsx src/server.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test --import tsx test/*.test.ts"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/ws": "^8.5.13",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}

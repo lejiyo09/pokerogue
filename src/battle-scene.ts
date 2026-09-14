@@ -1341,6 +1341,16 @@ export class BattleScene extends SceneBase {
   }
 
   /**
+   * Replace the player's party with the given Pokemon, for a PvP match (see `newPvpBattle`).
+   * `party` is otherwise a private field, populated for a normal run via `SelectStarterPhase`;
+   * this is the PvP-specific equivalent.
+   * @param party - The {@linkcode PlayerPokemon}s to battle with, built via `setUpPvpParty` (`#net/pvp-team-setup`)
+   */
+  public setPvpParty(party: PlayerPokemon[]): void {
+    this.party = party;
+  }
+
+  /**
    * Helper function to {@linkcode BattleScene.newBattle | newBattle} to initialize variables
    * with defaults if no session data is provided.
    * @param fromSession - The session data being used to initialize the battle
