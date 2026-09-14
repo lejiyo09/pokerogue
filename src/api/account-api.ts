@@ -54,22 +54,37 @@ export class PokerogueAccountApi extends ApiBase {
   /**
    * Send a login request.
    * Sets the session cookie on success.
+   *
+   * Retries with a fixed delay on a network-level failure (e.g. a blocked
+   * `fetch`) only - never on a real rejection the server sent back, like a
+   * wrong password. Some hosting platforms' free tiers spin an idle backend
+   * down and take 50+ seconds to wake it back up on the next request, during
+   * which the first request of a session can fail this way before the
+   * backend is reachable at all.
    * @param loginData The {@linkcode AccountLoginRequest} to send
+   * @param maxAttempts Maximum number of attempts, including the first - exposed for testing
+   * @param retryDelayMs Delay between attempts in milliseconds - exposed for testing
    * @returns An error message if something went wrong
    */
-  public async login(loginData: AccountLoginRequest): Promise<string | null> {
-    try {
-      const response = await this.doPost("/account/login", loginData, "form-urlencoded");
+  public async login(loginData: AccountLoginRequest, maxAttempts = 12, retryDelayMs = 5_000): Promise<string | null> {
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        const response = await this.doPost("/account/login", loginData, "form-urlencoded");
 
-      if (response.ok) {
-        const loginResponse = (await response.json()) as AccountLoginResponse;
-        setCookie(SESSION_ID_COOKIE_NAME, loginResponse.token);
-        return null;
+        if (response.ok) {
+          const loginResponse = (await response.json()) as AccountLoginResponse;
+          setCookie(SESSION_ID_COOKIE_NAME, loginResponse.token);
+          return null;
+        }
+        console.warn("Login failed!", response.status, response.statusText);
+        return response.text();
+      } catch (err) {
+        console.warn("Login failed!", err);
+        if (attempt === maxAttempts) {
+          return "Unknown login error!";
+        }
+        await new Promise(resolve => setTimeout(resolve, retryDelayMs));
       }
-      console.warn("Login failed!", response.status, response.statusText);
-      return response.text();
-    } catch (err) {
-      console.warn("Login failed!", err);
     }
 
     return "Unknown login error!";

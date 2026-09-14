@@ -119,13 +119,53 @@ describe("Pokerogue Account API", () => {
       expect(console.warn).toHaveBeenCalledWith("Login failed!", 401, "Unauthorized");
     });
 
-    it('should return "Unknown login error!" and report a warning on ERROR', async () => {
-      server.use(http.post(`${apiBase}/account/login`, () => HttpResponse.error()));
+    it('should return "Unknown login error!" and report a warning after exhausting retries on repeated network-level failure', async () => {
+      let requestCount = 0;
+      server.use(
+        http.post(`${apiBase}/account/login`, () => {
+          requestCount++;
+          return HttpResponse.error();
+        }),
+      );
 
-      const error = await accountApi.login(loginParams);
+      const error = await accountApi.login(loginParams, 3, 0);
 
       expect(error).toBe("Unknown login error!");
+      expect(requestCount).toBe(3);
       expect(console.warn).toHaveBeenCalledWith("Login failed!", expect.any(Error));
+    });
+
+    it("should retry a network-level failure and succeed once the server answers", async () => {
+      let requestCount = 0;
+      server.use(
+        http.post(`${apiBase}/account/login`, () => {
+          requestCount++;
+          if (requestCount < 3) {
+            return HttpResponse.error();
+          }
+          return HttpResponse.json({ token: "abctest" });
+        }),
+      );
+
+      const error = await accountApi.login(loginParams, 5, 0);
+
+      expect(error).toBeNull();
+      expect(requestCount).toBe(3);
+    });
+
+    it("should NOT retry when the server itself responds with a real rejection", async () => {
+      let requestCount = 0;
+      server.use(
+        http.post(`${apiBase}/account/login`, () => {
+          requestCount++;
+          return new HttpResponse("Password is incorrect", { status: 401 });
+        }),
+      );
+
+      const error = await accountApi.login(loginParams, 5, 0);
+
+      expect(error).toBe("Password is incorrect");
+      expect(requestCount).toBe(1);
     });
   });
 

@@ -7,7 +7,6 @@ import type { ModalConfig } from "#types/ui-types";
 import type { InputFieldConfig } from "#ui/form-modal-ui-handler";
 import { LoginRegisterInfoContainerUiHandler } from "#ui/login-register-info-container-ui-handler";
 import { addTextObject } from "#ui/text";
-import { fixedInt } from "#utils/common";
 import i18next from "i18next";
 
 // TODO: Consider replacing server error strings with numeric error codes for better maintainability
@@ -128,17 +127,7 @@ export class RegistrationFormUiHandler extends LoginRegisterInfoContainerUiHandl
               const password = passwordInput.text;
               pokerogueApi.account.login({ username, password }).then(loginError => {
                 if (loginError) {
-                  // retry once if the first attempt fails
-                  const retryLogin = () => {
-                    pokerogueApi.account.login({ username, password }).then(error => {
-                      if (error) {
-                        (globalScene.phaseManager.getCurrentPhase() as LoginPhase).goToLogin();
-                      } else {
-                        originalRegistrationAction?.();
-                      }
-                    });
-                  };
-                  globalScene.time.delayedCall(fixedInt(2000), retryLogin);
+                  (globalScene.phaseManager.getCurrentPhase() as LoginPhase).goToLogin();
                 } else {
                   originalRegistrationAction?.();
                 }
