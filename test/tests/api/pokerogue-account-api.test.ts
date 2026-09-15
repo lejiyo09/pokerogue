@@ -169,53 +169,69 @@ describe("Pokerogue Account API", () => {
     });
   });
 
-  describe("Login With Google", () => {
+  describe("Login With Firebase", () => {
     const idToken = "firebase-id-token";
 
     it("should return null and set the cookie on SUCCESS", async () => {
       vi.spyOn(CookieUtils, "setCookie");
-      server.use(http.post(`${apiBase}/account/login/google`, () => HttpResponse.json({ token: "abctest" })));
+      server.use(http.post(`${apiBase}/account/login/firebase`, () => HttpResponse.json({ token: "abctest" })));
 
-      const error = await accountApi.loginWithGoogle(idToken);
+      const error = await accountApi.loginWithFirebase(idToken);
 
       expect(error).toBeNull();
       expect(cookies.setCookie).toHaveBeenCalledWith(SESSION_ID_COOKIE_NAME, "abctest");
     });
 
+    it("should send the nickname on a first-time registration", async () => {
+      let receivedBody = "";
+      server.use(
+        http.post(`${apiBase}/account/login/firebase`, async ({ request }) => {
+          receivedBody = await request.text();
+          return HttpResponse.json({ token: "abctest" });
+        }),
+      );
+
+      await accountApi.loginWithFirebase(idToken, "newNickname");
+
+      const params = new URLSearchParams(receivedBody);
+      expect(params.get("idToken")).toBe(idToken);
+      expect(params.get("nickname")).toBe("newNickname");
+    });
+
     it("should return error message and report a warning on FAILURE", async () => {
       server.use(
         http.post(
-          `${apiBase}/account/login/google`,
-          () => new HttpResponse("email is not an allowed account", { status: 401 }),
+          `${apiBase}/account/login/firebase`,
+          () => new HttpResponse('"foo@bar.com" is not an allowed school email', { status: 401 }),
         ),
       );
 
-      const error = await accountApi.loginWithGoogle(idToken);
+      const error = await accountApi.loginWithFirebase(idToken);
 
-      expect(error).toBe("email is not an allowed account");
-      expect(console.warn).toHaveBeenCalledWith("Google sign-in failed!", 401, "Unauthorized");
+      expect(error).toBe('"foo@bar.com" is not an allowed school email');
+      expect(console.warn).toHaveBeenCalledWith("Firebase sign-in failed!", 401, "Unauthorized");
     });
 
-    it('should return "Unknown Google sign-in error!" and report a warning after exhausting retries on repeated network-level failure', async () => {
+    it('should return "Unknown sign-in error!" and report a warning after exhausting retries on repeated network-level failure', async () => {
       let requestCount = 0;
       server.use(
-        http.post(`${apiBase}/account/login/google`, () => {
+        http.post(`${apiBase}/account/login/firebase`, () => {
           requestCount++;
           return HttpResponse.error();
         }),
       );
 
-      const error = await accountApi.loginWithGoogle(idToken, 3, 0);
+      const error = await accountApi.loginWithFirebase(idToken, "", 3, 0);
 
-      expect(error).toBe("Unknown Google sign-in error!");
+      expect(error).toBe("Unknown sign-in error!");
       expect(requestCount).toBe(3);
-      expect(console.warn).toHaveBeenCalledWith("Google sign-in failed!", expect.any(Error));
+      expect(console.warn).toHaveBeenCalledWith("Firebase sign-in failed!", expect.any(Error));
     });
 
     it("should retry a network-level failure and succeed once the server answers", async () => {
       let requestCount = 0;
       server.use(
-        http.post(`${apiBase}/account/login/google`, () => {
+        http.post(`${apiBase}/account/login/firebase`, () => {
           requestCount++;
           if (requestCount < 3) {
             return HttpResponse.error();
@@ -224,7 +240,7 @@ describe("Pokerogue Account API", () => {
         }),
       );
 
-      const error = await accountApi.loginWithGoogle(idToken, 5, 0);
+      const error = await accountApi.loginWithFirebase(idToken, "", 5, 0);
 
       expect(error).toBeNull();
       expect(requestCount).toBe(3);
@@ -233,15 +249,15 @@ describe("Pokerogue Account API", () => {
     it("should NOT retry when the server itself responds with a real rejection", async () => {
       let requestCount = 0;
       server.use(
-        http.post(`${apiBase}/account/login/google`, () => {
+        http.post(`${apiBase}/account/login/firebase`, () => {
           requestCount++;
-          return new HttpResponse("email is not an allowed account", { status: 401 });
+          return new HttpResponse('"foo@bar.com" is not an allowed school email', { status: 401 });
         }),
       );
 
-      const error = await accountApi.loginWithGoogle(idToken, 5, 0);
+      const error = await accountApi.loginWithFirebase(idToken, "", 5, 0);
 
-      expect(error).toBe("email is not an allowed account");
+      expect(error).toBe('"foo@bar.com" is not an allowed school email');
       expect(requestCount).toBe(1);
     });
   });

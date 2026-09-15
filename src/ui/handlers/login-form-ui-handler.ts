@@ -1,4 +1,5 @@
 import { pokerogueApi } from "#api/api";
+import { signInWithFirebaseEmail } from "#app/firebase";
 import { globalScene } from "#app/global-scene";
 import { UiMode } from "#enums/ui-mode";
 import type { ModalConfig } from "#types/ui-types";
@@ -8,12 +9,25 @@ import i18next from "i18next";
 
 // TODO: Consider replacing server error strings with numeric error codes for better maintainability
 // TODO: Centralize server error constants
-const ERR_INVALID_USERNAME = "invalid username";
-const ERR_INVALID_PASSWORD = "invalid password";
-const ERR_NO_ACCOUNT = "account doesn't exist";
-const ERR_PASSWORD_MISMATCH = "password doesn't match";
 const ERR_FAILED_TO_GENERATE_TOKEN = "failed to generate token";
 const ERR_FAILED_TO_ADD_SESSION = "failed to add account session";
+
+/** Maps a `signInWithFirebaseEmail` failure to a readable message. */
+function readableFirebaseSignInError(err: unknown): string {
+  const code = err && typeof err === "object" && "code" in err ? String(err.code) : "";
+  switch (code) {
+    case "auth/invalid-email":
+      return "The provided email is invalid";
+    case "auth/invalid-credential":
+    case "auth/user-not-found":
+    case "auth/wrong-password":
+      return i18next.t("menu:accountNonExistent");
+    case "auth/too-many-requests":
+      return i18next.t("menu:pleaseTryAgainLater");
+    default:
+      return i18next.t("menu:pleaseTryAgainLater");
+  }
+}
 
 export class LoginFormUiHandler extends OAuthProvidersUiHandler {
   public override getModalTitle(): string {
@@ -46,14 +60,6 @@ export class LoginFormUiHandler extends OAuthProvidersUiHandler {
     }
 
     switch (error) {
-      case ERR_INVALID_USERNAME:
-        return i18next.t("menu:invalidLoginUsername");
-      case ERR_INVALID_PASSWORD:
-        return i18next.t("menu:invalidLoginPassword");
-      case ERR_NO_ACCOUNT:
-        return i18next.t("menu:accountNonExistent");
-      case ERR_PASSWORD_MISMATCH:
-        return i18next.t("menu:unmatchingPassword");
       case ERR_FAILED_TO_GENERATE_TOKEN:
         return `${i18next.t("menu:serverErrorGenerateToken")}\n${i18next.t("menu:pleaseTryAgainLater")}`;
       case ERR_FAILED_TO_ADD_SESSION:
@@ -66,7 +72,10 @@ export class LoginFormUiHandler extends OAuthProvidersUiHandler {
   public override getInputFieldConfigs(): InputFieldConfig[] {
     const inputFieldConfigs: InputFieldConfig[] = [];
     inputFieldConfigs.push(
-      { label: i18next.t("menu:username") },
+      // No locales entry exists for a generic "Email" label (this fork's
+      // school-email-only login is a local customization, not something
+      // the upstream locales repo covers).
+      { label: "Email" },
       {
         label: i18next.t("menu:password"),
         isPassword: true,
@@ -80,7 +89,6 @@ export class LoginFormUiHandler extends OAuthProvidersUiHandler {
       return false;
     }
     const config = args[0] as ModalConfig;
-    this.processExternalProvider();
     this.showInfoContainer(config);
     const originalLoginAction = this.submitAction;
     this.submitAction = () => {
@@ -96,22 +104,23 @@ export class LoginFormUiHandler extends OAuthProvidersUiHandler {
         globalScene.ui.playError();
       };
       if (!this.inputs[0].text) {
-        return onFail(i18next.t("menu:emptyUsername"));
+        return onFail("Email must not be empty");
       }
 
-      const [usernameInput, passwordInput] = this.inputs;
+      const [emailInput, passwordInput] = this.inputs;
 
-      pokerogueApi.account
-        .login({
-          username: usernameInput.text,
-          password: passwordInput.text,
-        })
+      signInWithFirebaseEmail(emailInput.text, passwordInput.text)
+        .then(idToken => pokerogueApi.account.loginWithFirebase(idToken))
         .then(error => {
           if (!error && originalLoginAction) {
             originalLoginAction();
           } else {
             onFail(error);
           }
+        })
+        .catch(err => {
+          console.warn("Firebase sign-in failed!", err);
+          onFail(readableFirebaseSignInError(err));
         });
     };
 

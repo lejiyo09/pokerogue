@@ -26,7 +26,7 @@ export class LoginOrRegisterUiHandler extends LoginRegisterInfoContainerUiHandle
   }
 
   public override getButtonLabels(): string[] {
-    return [i18next.t("menu:login")];
+    return [i18next.t("menu:login"), i18next.t("menu:register")];
   }
 
   public override getInputFieldConfigs(): InputFieldConfig[] {

@@ -1,5 +1,5 @@
 import { type FirebaseApp, initializeApp } from "firebase/app";
-import { type Auth, GoogleAuthProvider, getAuth, signInWithPopup } from "firebase/auth";
+import { type Auth, createUserWithEmailAndPassword, getAuth, signInWithEmailAndPassword } from "firebase/auth";
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY ?? "",
@@ -14,23 +14,38 @@ export const firebaseApp: FirebaseApp = initializeApp(firebaseConfig);
 export const firebaseAuth: Auth = getAuth(firebaseApp);
 
 /**
- * Narrows the Google account picker to this school's Google Workspace
- * domain. This is a UX convenience only, not the real security boundary -
- * the server independently re-verifies the signed-in account's email
- * against the exact allowed shape, and rejects anything else regardless of
- * what the picker showed.
+ * Matches the school email shape the server independently re-checks
+ * (`allowedSchoolEmail` in rogueserver's `api/account/firebase.go`). Used
+ * here only to reject an obviously wrong email before creating a Firebase
+ * account for it - the server's check is the real security boundary and is
+ * never skipped, regardless of what this returns.
  */
-export const googleProvider = new GoogleAuthProvider();
-googleProvider.setCustomParameters({ hd: "hanilgo.cnehs.kr" });
+const ALLOWED_SCHOOL_EMAIL = /^2026\d{4}@hanilgo\.cnehs\.kr$/;
+
+export function isAllowedSchoolEmail(email: string): boolean {
+  return ALLOWED_SCHOOL_EMAIL.test(email);
+}
 
 /**
- * Opens the Google sign-in popup and returns the resulting Firebase ID
- * token, for exchanging with the server (`/account/login/google`) via
- * {@linkcode PokerogueAccountApi.loginWithGoogle}.
- * @throws Whatever `signInWithPopup` throws - e.g. if the user closes the
- * popup, or it's blocked by the browser.
+ * Creates a Firebase email/password account for `email` and returns the
+ * resulting ID token, for exchanging with the server
+ * (`/account/login/firebase`) via {@linkcode PokerogueAccountApi.loginWithFirebase}.
+ * @throws A Firebase `FirebaseError` (e.g. `auth/email-already-in-use`,
+ * `auth/weak-password`, `auth/invalid-email`) if registration fails.
  */
-export async function signInWithGoogle(): Promise<string> {
-  const credential = await signInWithPopup(firebaseAuth, googleProvider);
+export async function registerWithFirebaseEmail(email: string, password: string): Promise<string> {
+  const credential = await createUserWithEmailAndPassword(firebaseAuth, email, password);
+  return await credential.user.getIdToken();
+}
+
+/**
+ * Signs into an existing Firebase email/password account and returns the
+ * resulting ID token, for exchanging with the server the same way as
+ * {@linkcode registerWithFirebaseEmail}.
+ * @throws A Firebase `FirebaseError` (e.g. `auth/invalid-credential`,
+ * `auth/too-many-requests`) if sign-in fails.
+ */
+export async function signInWithFirebaseEmail(email: string, password: string): Promise<string> {
+  const credential = await signInWithEmailAndPassword(firebaseAuth, email, password);
   return await credential.user.getIdToken();
 }
