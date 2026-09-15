@@ -65,6 +65,15 @@ export class Ability {
   }
   public readonly attrs: readonly AbAttr[];
   public readonly conditions: readonly AbAttrCondition[];
+  /**
+   * Cache of {@linkcode attrs} filtered by attribute type, populated lazily by {@linkcode getAttrs}.
+   * @remarks
+   * `attrs` never changes after construction, so once computed a given `attrType`'s filtered
+   * list is valid for the lifetime of this `Ability` - this avoids re-scanning `attrs` with an
+   * `instanceof` check on every `hasAttr`/`getAttrs` call, which are invoked extremely often
+   * during battle (e.g. every stat access via `getEffectiveStat`).
+   */
+  private readonly attrCache = new Map<AbAttrString, AbAttr[]>();
 
   /** The localized ability description */
   public get description(): string {
@@ -161,11 +170,7 @@ export class Ability {
    * @returns true if the ability has attribute `attrType`
    */
   hasAttr<T extends AbAttrString>(attrType: T): boolean {
-    const targetAttr = AbilityAttrs[attrType];
-    if (!targetAttr) {
-      return false;
-    }
-    return this.attrs.some(attr => attr instanceof targetAttr);
+    return this.getAttrs(attrType).length > 0;
   }
 
   /**
@@ -174,12 +179,16 @@ export class Ability {
    * @returns Array of attributes that match `attrType`, Empty Array if none match.
    */
   getAttrs<T extends AbAttrString>(attrType: T): AbAttrMap[T][] {
-    const targetAttr = AbilityAttrs[attrType];
-    if (!targetAttr) {
-      return [];
+    let cached = this.attrCache.get(attrType);
+    if (!cached) {
+      const targetAttr = AbilityAttrs[attrType];
+      // TODO: figure out how to remove the `as AbAttrMap[T][]` cast
+      cached = targetAttr
+        ? (this.attrs.filter((a): a is AbAttrMap[T] => a instanceof targetAttr) as AbAttrMap[T][])
+        : [];
+      this.attrCache.set(attrType, cached);
     }
-    // TODO: figure out how to remove the `as AbAttrMap[T][]` cast
-    return this.attrs.filter((a): a is AbAttrMap[T] => a instanceof targetAttr) as AbAttrMap[T][];
+    return cached as AbAttrMap[T][];
   }
 }
 

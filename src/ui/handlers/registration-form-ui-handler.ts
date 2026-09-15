@@ -1,22 +1,73 @@
 import { pokerogueApi } from "#api/api";
 import { globalScene } from "#app/global-scene";
-import { TextStyle } from "#enums/text-style";
+import { isAllowedSchoolEmail } from "#data/school-email";
 import { UiMode } from "#enums/ui-mode";
-import type { LoginPhase } from "#phases/login-phase";
 import type { ModalConfig } from "#types/ui-types";
 import type { InputFieldConfig } from "#ui/form-modal-ui-handler";
 import { LoginRegisterInfoContainerUiHandler } from "#ui/login-register-info-container-ui-handler";
-import { addTextObject } from "#ui/text";
-import { fixedInt } from "#utils/common";
 import i18next from "i18next";
 
 // TODO: Consider replacing server error strings with numeric error codes for better maintainability
 // TODO: Centralize server error constants
-const ERR_INVALID_USERNAME = "invalid username";
-const ERR_INVALID_PASSWORD = "invalid password";
-const ERR_USERNAME_IN_USE = "failed to add account record";
+const ERR_INVALID_NICKNAME = "invalid nickname";
+const ERR_NICKNAME_IN_USE = "failed to add account record";
 const ERR_FAILED_TO_GENERATE_UUID = "failed to generate uuid";
 const ERR_FAILED_TO_GENERATE_PASSWORD = "failed to generate salt";
+
+// Mirrors the server's isValidUsername (api/account/common.go) exactly, so
+// an invalid nickname (e.g. one with Korean characters) is caught here,
+// before ever creating a Firebase account for it - reaching the server's
+// own check would mean a Firebase account was created only to immediately
+// fail registration, stranding it in the same already-in-use state
+// getOrCreateFirebaseIdToken's sign-in fallback exists to recover from.
+const VALID_NICKNAME = /^\w{1,16}$/;
+
+/** Maps a `registerWithFirebaseEmail`/`signInWithFirebaseEmail` failure to a readable message. */
+function readableFirebaseRegisterError(err: unknown): string {
+  const code = err && typeof err === "object" && "code" in err ? String(err.code) : "";
+  switch (code) {
+    case "auth/invalid-email":
+      return "The provided email is invalid";
+    case "auth/weak-password":
+      return i18next.t("menu:invalidRegisterPassword");
+    case "auth/invalid-credential":
+    case "auth/wrong-password":
+    case "auth/user-not-found":
+      // Only reachable via getOrCreateFirebaseIdToken's sign-in fallback:
+      // an account already exists for this email, and this password isn't
+      // its password.
+      return "An account already exists for this email, and this password doesn't match it";
+    case "auth/too-many-requests":
+      return i18next.t("menu:pleaseTryAgainLater");
+    default:
+      return i18next.t("menu:pleaseTryAgainLater");
+  }
+}
+
+/**
+ * Registers a new Firebase account for `email`/`password`, or - if one
+ * already exists (`auth/email-already-in-use`) - signs into it instead. That
+ * case happens whenever a Firebase account was created but its matching
+ * rogueserver account never finished registering (e.g. the account's very
+ * first login was tried from the Login screen, which never sends a nickname
+ * - see loginWithIdentity's doc comment); without this fallback, that
+ * account could never register OR log in again. Either way, returns an ID
+ * token to exchange with the server via `loginWithFirebase(idToken, nickname)`.
+ */
+async function getOrCreateFirebaseIdToken(email: string, password: string): Promise<string> {
+  // Dynamically imported so the Firebase SDK - unused by anyone who never
+  // opens this form - isn't part of the app's main eager bundle.
+  const { registerWithFirebaseEmail, signInWithFirebaseEmail } = await import("#app/firebase");
+  try {
+    return await registerWithFirebaseEmail(email, password);
+  } catch (err) {
+    const code = err && typeof err === "object" && "code" in err ? err.code : "";
+    if (code !== "auth/email-already-in-use") {
+      throw err;
+    }
+    return await signInWithFirebaseEmail(email, password);
+  }
+}
 
 export class RegistrationFormUiHandler extends LoginRegisterInfoContainerUiHandler {
   public override getModalTitle(): string {
@@ -28,7 +79,10 @@ export class RegistrationFormUiHandler extends LoginRegisterInfoContainerUiHandl
   }
 
   public override getMargin(): [number, number, number, number] {
-    return [0, 20, 48, 0];
+    // Registration grew a 4th input field (nickname) versus upstream, which
+    // grows getHeight() by 20 and was pushing the window's top off-screen at
+    // the old margin - a non-zero top margin moves it back down.
+    return [20, 20, 48, 0];
   }
 
   public override getButtonTopMargin(): number {
@@ -46,11 +100,9 @@ export class RegistrationFormUiHandler extends LoginRegisterInfoContainerUiHandl
     }
 
     switch (error) {
-      case ERR_INVALID_USERNAME:
+      case ERR_INVALID_NICKNAME:
         return i18next.t("menu:invalidRegisterUsername");
-      case ERR_INVALID_PASSWORD:
-        return i18next.t("menu:invalidRegisterPassword");
-      case ERR_USERNAME_IN_USE:
+      case ERR_NICKNAME_IN_USE:
         return i18next.t("menu:usernameAlreadyUsed");
       case ERR_FAILED_TO_GENERATE_UUID:
         return `${i18next.t("menu:serverErrorGenerateUuid")}\n${i18next.t("menu:pleaseTryAgainLater")}`;
@@ -63,7 +115,12 @@ export class RegistrationFormUiHandler extends LoginRegisterInfoContainerUiHandl
 
   public override getInputFieldConfigs(): InputFieldConfig[] {
     const inputFieldConfigs: InputFieldConfig[] = [];
-    inputFieldConfigs.push({ label: i18next.t("menu:username") });
+    // No locales entry exists for a generic "Email" label (this fork's
+    // school-email-only registration is a local customization, not
+    // something the upstream locales repo covers). maxLength: the default
+    // (20) is too short for "2026####@hanilgo.cnehs.kr" (25 chars).
+    inputFieldConfigs.push({ label: "Email", maxLength: 40 });
+    inputFieldConfigs.push({ label: i18next.t("menu:nickname") });
     inputFieldConfigs.push({
       label: i18next.t("menu:password"),
       isPassword: true,
@@ -73,17 +130,6 @@ export class RegistrationFormUiHandler extends LoginRegisterInfoContainerUiHandl
       isPassword: true,
     });
     return inputFieldConfigs;
-  }
-
-  public override setup(): void {
-    super.setup();
-
-    const label = addTextObject(10, 87, i18next.t("menu:registrationAgeWarning"), TextStyle.TOOLTIP_CONTENT, {
-      fontSize: "42px",
-      wordWrap: { width: 850 },
-    });
-
-    this.modalContainer.add(label);
   }
 
   public override show(args: [ModalConfig, ...any[]]): boolean {
@@ -106,44 +152,37 @@ export class RegistrationFormUiHandler extends LoginRegisterInfoContainerUiHandl
           globalScene.ui.playError();
         };
         if (!this.inputs[0].text) {
-          return onFail(i18next.t("menu:emptyUsername"));
+          return onFail("Email must not be empty");
+        }
+        if (!isAllowedSchoolEmail(this.inputs[0].text)) {
+          return onFail("This email is not allowed to register");
         }
         if (!this.inputs[1].text) {
-          return onFail(this.getReadableErrorMessage("invalid password"));
+          return onFail("Nickname must not be empty");
         }
-        if (this.inputs[1].text !== this.inputs[2].text) {
+        if (!VALID_NICKNAME.test(this.inputs[1].text)) {
+          return onFail(i18next.t("menu:invalidRegisterUsername"));
+        }
+        if (!this.inputs[2].text) {
+          return onFail(i18next.t("menu:invalidRegisterPassword"));
+        }
+        if (this.inputs[2].text !== this.inputs[3].text) {
           return onFail(i18next.t("menu:passwordNotMatchingConfirmPassword"));
         }
-        const [usernameInput, passwordInput] = this.inputs;
-        pokerogueApi.account
-          .register({
-            username: usernameInput.text,
-            password: passwordInput.text,
-          })
-          .then(registerError => {
-            if (registerError) {
-              onFail(registerError);
+        const [emailInput, nicknameInput, passwordInput] = this.inputs;
+
+        getOrCreateFirebaseIdToken(emailInput.text, passwordInput.text)
+          .then(idToken => pokerogueApi.account.loginWithFirebase(idToken, nicknameInput.text))
+          .then(error => {
+            if (!error && originalRegistrationAction) {
+              originalRegistrationAction();
             } else {
-              const username = usernameInput.text;
-              const password = passwordInput.text;
-              pokerogueApi.account.login({ username, password }).then(loginError => {
-                if (loginError) {
-                  // retry once if the first attempt fails
-                  const retryLogin = () => {
-                    pokerogueApi.account.login({ username, password }).then(error => {
-                      if (error) {
-                        (globalScene.phaseManager.getCurrentPhase() as LoginPhase).goToLogin();
-                      } else {
-                        originalRegistrationAction?.();
-                      }
-                    });
-                  };
-                  globalScene.time.delayedCall(fixedInt(2000), retryLogin);
-                } else {
-                  originalRegistrationAction?.();
-                }
-              });
+              onFail(error ?? "");
             }
+          })
+          .catch(err => {
+            console.warn("Firebase registration failed!", err);
+            onFail(readableFirebaseRegisterError(err));
           });
       }
     };
