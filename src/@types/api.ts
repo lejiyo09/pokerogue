@@ -6,6 +6,8 @@ export interface UserInfo {
   discordId: string;
   googleId: string;
   hasAdminRole: boolean;
+  /** Full gameplay-cheat access (see `GameData.unlockEverythingForCheats`) - granted to exactly one designated school email; see rogueserver's `cheatAccountEmail`. */
+  cheatsEnabled: boolean;
 }
 
 export interface TitleStatsResponse {

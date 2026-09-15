@@ -18,6 +18,7 @@ import { BattleMessageUiHandler } from "#ui/battle-message-ui-handler";
 import type { BgmBar } from "#ui/bgm-bar";
 import { GameChallengesUiHandler } from "#ui/challenges-select-ui-handler";
 import { ChangePasswordFormUiHandler } from "#ui/change-password-form-ui-handler";
+import { CheatLevelFormUiHandler } from "#ui/cheat-level-form-ui-handler";
 import { CommandUiHandler } from "#ui/command-ui-handler";
 import { ConfirmUiHandler } from "#ui/confirm-ui-handler";
 import { SettingsDisplayUiHandler } from "#ui/display-settings-ui-handler";
@@ -109,6 +110,7 @@ const noTransitionModes = [
   UiMode.RUN_INFO,
   UiMode.CHANGE_PASSWORD_FORM,
   UiMode.ALERT_MODAL,
+  UiMode.CHEAT_LEVEL_FORM,
 ];
 
 // biome-ignore lint/style/useNamingConvention: a unique case (only 2 letters)
@@ -185,6 +187,7 @@ export class UI extends Phaser.GameObjects.Container {
       new ChangePasswordFormUiHandler(),
       new AlertModalUiHandler(),
       new PvpJoinRoomFormUiHandler(),
+      new CheatLevelFormUiHandler(),
     ];
   }
 

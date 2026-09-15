@@ -1,4 +1,5 @@
 import { applyAbAttrs } from "#abilities/apply-ab-attrs";
+import { loggedInUser } from "#app/account";
 import { Animation } from "#app/animations";
 import { Battle } from "#app/battle";
 import {
@@ -230,7 +231,7 @@ export class BattleScene extends SceneBase {
   public lastEnemyTrainer: Trainer | null;
   public currentBattle: Battle;
   public pokeballCounts: PokeballCounts;
-  public money: number;
+  private _money: number;
   public pokemonInfoContainer: PokemonInfoContainer;
   private party: PlayerPokemon[];
   /** Session save data that pertains to Mystery Encounters */
@@ -2193,6 +2194,24 @@ export class BattleScene extends SceneBase {
       .setColor(isBoss ? "#f89890" : "#ffffff")
       .setShadowColor(isBoss ? "#984038" : "#636363")
       .setVisible(true);
+  }
+
+  /**
+   * The player's current money.
+   * @remarks
+   * For the {@linkcode loggedInUser | logged-in account} with cheats enabled
+   * (see `GameData.unlockEverythingForCheats`), every write to this - a
+   * purchase, a reward, a reset to 0 on `NewGamePhase`, anything - is pinned
+   * to {@linkcode Number.MAX_SAFE_INTEGER} instead, so money effectively
+   * never runs out for that account. This is the sole choke point for that:
+   * nothing that spends or grants money needs its own cheat-account check.
+   */
+  public get money(): number {
+    return this._money;
+  }
+
+  public set money(value: number) {
+    this._money = loggedInUser?.cheatsEnabled ? Number.MAX_SAFE_INTEGER : value;
   }
 
   updateMoneyText(forceVisible = true): void {

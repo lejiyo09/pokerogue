@@ -48,4 +48,5 @@ export enum UiMode {
   CHANGE_PASSWORD_FORM,
   ALERT_MODAL,
   PVP_JOIN_FORM,
+  CHEAT_LEVEL_FORM,
 }

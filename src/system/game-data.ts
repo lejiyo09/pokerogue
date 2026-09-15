@@ -1,6 +1,6 @@
 import { pokerogueApi } from "#api/api";
 import { clientSessionId, getSessionDataLocalStorageKey, loggedInUser, updateUserInfo } from "#app/account";
-import { defaultStarterSpecies, saveKey } from "#app/constants";
+import { defaultStarterSpecies, saveKey, VALUE_REDUCTION_MAX } from "#app/constants";
 import { getGameMode } from "#app/game-mode";
 import { audioManager } from "#app/global-audio-manager";
 import { globalScene } from "#app/global-scene";
@@ -26,6 +26,7 @@ import { DexAttr } from "#enums/dex-attr";
 import { GameDataType } from "#enums/game-data-type";
 import { GameModes } from "#enums/game-modes";
 import { Nature } from "#enums/nature";
+import { Passive } from "#enums/passive";
 import { PlayerGender } from "#enums/player-gender";
 import { SpeciesId } from "#enums/species-id";
 import { StatusEffect } from "#enums/status-effect";
@@ -1815,6 +1816,58 @@ export class GameData {
     globalScene.candyBar.showStarterSpeciesCandy(speciesId, numCandiesToAdd);
 
     return true;
+  }
+
+  /**
+   * Grants every dex/starter unlock there is - all shiny variants, genders,
+   * forms and natures seen/caught for every species, every starter's
+   * abilities/passive/candy/cost-reduction maxed out - for the
+   * {@linkcode loggedInUser | logged-in account} with cheats enabled (see
+   * `cheatAccountEmail` on the server, and {@linkcode BattleScene.money}'s
+   * getter/setter for that account's unlimited money).
+   * @remarks
+   * Caller is responsible for persisting this with {@linkcode saveSystem} -
+   * kept synchronous and side-effect-free otherwise so it stays easy to test.
+   */
+  public unlockEverythingForCheats(): void {
+    let allNatureAttr = 0;
+    for (let nature = Nature.HARDY; nature <= Nature.QUIRKY; nature++) {
+      allNatureAttr |= 1 << (nature + 1);
+    }
+
+    for (const species of speciesDataRegistry.getAllSpecies()) {
+      let allFormAttr = 0n;
+      for (let f = 0; f < species.forms.length; f++) {
+        allFormAttr |= this.getFormAttr(f);
+      }
+
+      const allDexAttr =
+        DexAttr.NON_SHINY
+        | DexAttr.SHINY
+        | DexAttr.MALE
+        | DexAttr.FEMALE
+        | DexAttr.DEFAULT_VARIANT
+        | DexAttr.VARIANT_2
+        | DexAttr.VARIANT_3
+        | DexAttr.DEFAULT_FORM
+        | allFormAttr;
+
+      const dexEntry = this.dexData[species.speciesId];
+      dexEntry.seenAttr = allDexAttr;
+      dexEntry.caughtAttr = allDexAttr;
+      dexEntry.natureAttr = allNatureAttr;
+      dexEntry.seenCount = Math.max(dexEntry.seenCount, 1);
+      dexEntry.caughtCount = Math.max(dexEntry.caughtCount, 1);
+      dexEntry.ivs = [31, 31, 31, 31, 31, 31];
+    }
+
+    for (const species of speciesDataRegistry.getAllStarters(true)) {
+      const starterEntry = this.starterData[species.speciesId];
+      starterEntry.candyCount = MAX_STARTER_CANDY_COUNT;
+      starterEntry.abilityAttr = AbilityAttr.ABILITY_1 | AbilityAttr.ABILITY_2 | AbilityAttr.ABILITY_HIDDEN;
+      starterEntry.passiveAttr = Passive.UNLOCKED | Passive.ENABLED;
+      starterEntry.valueReduction = VALUE_REDUCTION_MAX;
+    }
   }
 
   /**
