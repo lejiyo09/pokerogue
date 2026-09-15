@@ -20,6 +20,13 @@ interface ImportMetaEnv {
   readonly VITE_PVP_SERVER_URL?: WS_URL;
   readonly VITE_DISCORD_CLIENT_ID?: string;
   readonly VITE_GOOGLE_CLIENT_ID?: string;
+  /** @see {@linkcode file://./firebase.ts} */
+  readonly VITE_FIREBASE_API_KEY?: string;
+  readonly VITE_FIREBASE_AUTH_DOMAIN?: string;
+  readonly VITE_FIREBASE_PROJECT_ID?: string;
+  readonly VITE_FIREBASE_STORAGE_BUCKET?: string;
+  readonly VITE_FIREBASE_MESSAGING_SENDER_ID?: string;
+  readonly VITE_FIREBASE_APP_ID?: string;
   readonly VITE_I18N_DEBUG?: "0" | "1";
   readonly VITE_WIKI_URL: string;
   readonly VITE_DISCORD_URL: string;

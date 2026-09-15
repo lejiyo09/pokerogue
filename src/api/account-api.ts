@@ -91,6 +91,41 @@ export class PokerogueAccountApi extends ApiBase {
   }
 
   /**
+   * Exchange a Firebase ID token (from `signInWithPopup(firebaseAuth, googleProvider)`)
+   * for a session, auto-registering an account on a first sign-in.
+   * Sets the session cookie on success.
+   *
+   * Retries with a fixed delay on a network-level failure only - see {@linkcode login}.
+   * @param idToken The Firebase ID token to send
+   * @param maxAttempts Maximum number of attempts, including the first - exposed for testing
+   * @param retryDelayMs Delay between attempts in milliseconds - exposed for testing
+   * @returns An error message if something went wrong
+   */
+  public async loginWithGoogle(idToken: string, maxAttempts = 12, retryDelayMs = 5_000): Promise<string | null> {
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        const response = await this.doPost("/account/login/google", { idToken }, "form-urlencoded");
+
+        if (response.ok) {
+          const loginResponse = (await response.json()) as AccountLoginResponse;
+          setCookie(SESSION_ID_COOKIE_NAME, loginResponse.token);
+          return null;
+        }
+        console.warn("Google sign-in failed!", response.status, response.statusText);
+        return response.text();
+      } catch (err) {
+        console.warn("Google sign-in failed!", err);
+        if (attempt === maxAttempts) {
+          return "Unknown Google sign-in error!";
+        }
+        await new Promise(resolve => setTimeout(resolve, retryDelayMs));
+      }
+    }
+
+    return "Unknown Google sign-in error!";
+  }
+
+  /**
    * Send a logout request.
    * @remarks
    * **Always** (no matter if failed or not) removes the session cookie.

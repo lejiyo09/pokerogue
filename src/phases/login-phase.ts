@@ -1,4 +1,6 @@
+import { pokerogueApi } from "#api/api";
 import { updateUserInfo } from "#app/account";
+import { signInWithGoogle as googleSignIn } from "#app/firebase";
 import { audioManager } from "#app/global-audio-manager";
 import { globalScene } from "#app/global-scene";
 import { settings } from "#app/global-settings-manager";
@@ -7,6 +9,7 @@ import { handleTutorial, Tutorial } from "#app/tutorial";
 import { bypassLogin } from "#constants/app-constants";
 import { PlayerGender } from "#enums/player-gender";
 import { UiMode } from "#enums/ui-mode";
+import type { FormModalConfig } from "#types/ui-types";
 import { executeIf, sessionIdKey } from "#utils/common";
 import { getCookie, removeCookie } from "#utils/cookies";
 import i18next, { t } from "i18next";
@@ -81,15 +84,17 @@ export class LoginPhase extends Phase {
     super.end();
   }
 
-  private showLoginRegister(): void {
+  /**
+   * Shows the single "sign in with Google" button. Accounts are Google-only
+   * (see docs on {@linkcode PokerogueAccountApi.loginWithGoogle} for why
+   * there's no separate registration step) and Discord sign-in is disabled.
+   * @param errorMessage - Shown above the button, e.g. after a failed sign-in attempt.
+   */
+  private showLoginRegister(errorMessage?: string): void {
     const { ui } = globalScene;
 
-    const goToLoginButton = () => {
-      this.goToLogin();
-    };
-
-    const goToRegistrationButton = () => {
-      this.goToRegister();
+    const signInButton = () => {
+      this.signInWithGoogle();
     };
 
     if (this.showText) {
@@ -98,7 +103,47 @@ export class LoginPhase extends Phase {
 
     audioManager.playSound("ui/menu_open");
 
-    ui.setMode(UiMode.LOGIN_OR_REGISTER, { buttonActions: [goToLoginButton, goToRegistrationButton] });
+    const config: FormModalConfig = { buttonActions: [signInButton] };
+    if (errorMessage) {
+      config.errorMessage = errorMessage;
+    }
+
+    ui.setMode(UiMode.LOGIN_OR_REGISTER, config);
+  }
+
+  /**
+   * Opens the Google sign-in popup, exchanges the resulting ID token for a
+   * session with the server, then loads the account's save data - or, on
+   * any failure, returns to {@linkcode showLoginRegister} with an error.
+   */
+  private async signInWithGoogle(): Promise<void> {
+    const { ui, gameData } = globalScene;
+
+    ui.setMode(UiMode.LOADING, { buttonActions: [] });
+
+    let idToken: string;
+    try {
+      idToken = await googleSignIn();
+    } catch (err) {
+      console.warn("Google sign-in was cancelled or failed!", err);
+      this.showLoginRegister();
+      return;
+    }
+
+    const loginError = await pokerogueApi.account.loginWithGoogle(idToken);
+    if (loginError) {
+      ui.playError();
+      this.showLoginRegister(loginError.trim());
+      return;
+    }
+
+    const success = await this.checkUserInfo();
+    if (!success) {
+      return;
+    }
+
+    await gameData.loadSystem();
+    this.end();
   }
 
   private async checkUserInfo(): Promise<boolean> {

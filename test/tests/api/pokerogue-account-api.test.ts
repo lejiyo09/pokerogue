@@ -169,6 +169,83 @@ describe("Pokerogue Account API", () => {
     });
   });
 
+  describe("Login With Google", () => {
+    const idToken = "firebase-id-token";
+
+    it("should return null and set the cookie on SUCCESS", async () => {
+      vi.spyOn(CookieUtils, "setCookie");
+      server.use(http.post(`${apiBase}/account/login/google`, () => HttpResponse.json({ token: "abctest" })));
+
+      const error = await accountApi.loginWithGoogle(idToken);
+
+      expect(error).toBeNull();
+      expect(cookies.setCookie).toHaveBeenCalledWith(SESSION_ID_COOKIE_NAME, "abctest");
+    });
+
+    it("should return error message and report a warning on FAILURE", async () => {
+      server.use(
+        http.post(
+          `${apiBase}/account/login/google`,
+          () => new HttpResponse("email is not an allowed account", { status: 401 }),
+        ),
+      );
+
+      const error = await accountApi.loginWithGoogle(idToken);
+
+      expect(error).toBe("email is not an allowed account");
+      expect(console.warn).toHaveBeenCalledWith("Google sign-in failed!", 401, "Unauthorized");
+    });
+
+    it('should return "Unknown Google sign-in error!" and report a warning after exhausting retries on repeated network-level failure', async () => {
+      let requestCount = 0;
+      server.use(
+        http.post(`${apiBase}/account/login/google`, () => {
+          requestCount++;
+          return HttpResponse.error();
+        }),
+      );
+
+      const error = await accountApi.loginWithGoogle(idToken, 3, 0);
+
+      expect(error).toBe("Unknown Google sign-in error!");
+      expect(requestCount).toBe(3);
+      expect(console.warn).toHaveBeenCalledWith("Google sign-in failed!", expect.any(Error));
+    });
+
+    it("should retry a network-level failure and succeed once the server answers", async () => {
+      let requestCount = 0;
+      server.use(
+        http.post(`${apiBase}/account/login/google`, () => {
+          requestCount++;
+          if (requestCount < 3) {
+            return HttpResponse.error();
+          }
+          return HttpResponse.json({ token: "abctest" });
+        }),
+      );
+
+      const error = await accountApi.loginWithGoogle(idToken, 5, 0);
+
+      expect(error).toBeNull();
+      expect(requestCount).toBe(3);
+    });
+
+    it("should NOT retry when the server itself responds with a real rejection", async () => {
+      let requestCount = 0;
+      server.use(
+        http.post(`${apiBase}/account/login/google`, () => {
+          requestCount++;
+          return new HttpResponse("email is not an allowed account", { status: 401 });
+        }),
+      );
+
+      const error = await accountApi.loginWithGoogle(idToken, 5, 0);
+
+      expect(error).toBe("email is not an allowed account");
+      expect(requestCount).toBe(1);
+    });
+  });
+
   describe("Logout", () => {
     beforeEach(() => {
       vi.spyOn(CookieUtils, "removeCookie");
