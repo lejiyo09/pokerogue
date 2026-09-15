@@ -1,12 +1,10 @@
 import { pokerogueApi } from "#api/api";
 import { isAllowedSchoolEmail, registerWithFirebaseEmail } from "#app/firebase";
 import { globalScene } from "#app/global-scene";
-import { TextStyle } from "#enums/text-style";
 import { UiMode } from "#enums/ui-mode";
 import type { ModalConfig } from "#types/ui-types";
 import type { InputFieldConfig } from "#ui/form-modal-ui-handler";
 import { LoginRegisterInfoContainerUiHandler } from "#ui/login-register-info-container-ui-handler";
-import { addTextObject } from "#ui/text";
 import i18next from "i18next";
 
 // TODO: Consider replacing server error strings with numeric error codes for better maintainability
@@ -43,7 +41,10 @@ export class RegistrationFormUiHandler extends LoginRegisterInfoContainerUiHandl
   }
 
   public override getMargin(): [number, number, number, number] {
-    return [0, 20, 48, 0];
+    // Registration grew a 4th input field (nickname) versus upstream, which
+    // grows getHeight() by 20 and was pushing the window's top off-screen at
+    // the old margin - a non-zero top margin moves it back down.
+    return [20, 20, 48, 0];
   }
 
   public override getButtonTopMargin(): number {
@@ -78,8 +79,9 @@ export class RegistrationFormUiHandler extends LoginRegisterInfoContainerUiHandl
     const inputFieldConfigs: InputFieldConfig[] = [];
     // No locales entry exists for a generic "Email" label (this fork's
     // school-email-only registration is a local customization, not
-    // something the upstream locales repo covers).
-    inputFieldConfigs.push({ label: "Email" });
+    // something the upstream locales repo covers). maxLength: the default
+    // (20) is too short for "2026####@hanilgo.cnehs.kr" (25 chars).
+    inputFieldConfigs.push({ label: "Email", maxLength: 40 });
     inputFieldConfigs.push({ label: i18next.t("menu:nickname") });
     inputFieldConfigs.push({
       label: i18next.t("menu:password"),
@@ -90,17 +92,6 @@ export class RegistrationFormUiHandler extends LoginRegisterInfoContainerUiHandl
       isPassword: true,
     });
     return inputFieldConfigs;
-  }
-
-  public override setup(): void {
-    super.setup();
-
-    const label = addTextObject(10, 87, i18next.t("menu:registrationAgeWarning"), TextStyle.TOOLTIP_CONTENT, {
-      fontSize: "42px",
-      wordWrap: { width: 850 },
-    });
-
-    this.modalContainer.add(label);
   }
 
   public override show(args: [ModalConfig, ...any[]]): boolean {

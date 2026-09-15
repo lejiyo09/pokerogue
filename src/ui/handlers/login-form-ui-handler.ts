@@ -42,7 +42,7 @@ export class LoginFormUiHandler extends OAuthProvidersUiHandler {
   }
 
   public override getMargin(): [number, number, number, number] {
-    return [0, 20, 48, 0];
+    return [20, 20, 48, 0];
   }
 
   public override getButtonLabels(): string[] {
@@ -74,8 +74,9 @@ export class LoginFormUiHandler extends OAuthProvidersUiHandler {
     inputFieldConfigs.push(
       // No locales entry exists for a generic "Email" label (this fork's
       // school-email-only login is a local customization, not something
-      // the upstream locales repo covers).
-      { label: "Email" },
+      // the upstream locales repo covers). maxLength: the default (20) is
+      // too short for "2026####@hanilgo.cnehs.kr" (25 chars).
+      { label: "Email", maxLength: 40 },
       {
         label: i18next.t("menu:password"),
         isPassword: true,
