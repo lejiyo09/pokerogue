@@ -14,6 +14,14 @@ const ERR_NICKNAME_IN_USE = "failed to add account record";
 const ERR_FAILED_TO_GENERATE_UUID = "failed to generate uuid";
 const ERR_FAILED_TO_GENERATE_PASSWORD = "failed to generate salt";
 
+// Mirrors the server's isValidUsername (api/account/common.go) exactly, so
+// an invalid nickname (e.g. one with Korean characters) is caught here,
+// before ever creating a Firebase account for it - reaching the server's
+// own check would mean a Firebase account was created only to immediately
+// fail registration, stranding it in the same already-in-use state
+// getOrCreateFirebaseIdToken's sign-in fallback exists to recover from.
+const VALID_NICKNAME = /^\w{1,16}$/;
+
 /** Maps a `registerWithFirebaseEmail`/`signInWithFirebaseEmail` failure to a readable message. */
 function readableFirebaseRegisterError(err: unknown): string {
   const code = err && typeof err === "object" && "code" in err ? String(err.code) : "";
@@ -148,6 +156,9 @@ export class RegistrationFormUiHandler extends LoginRegisterInfoContainerUiHandl
         }
         if (!this.inputs[1].text) {
           return onFail("Nickname must not be empty");
+        }
+        if (!VALID_NICKNAME.test(this.inputs[1].text)) {
+          return onFail(i18next.t("menu:invalidRegisterUsername"));
         }
         if (!this.inputs[2].text) {
           return onFail(i18next.t("menu:invalidRegisterPassword"));
