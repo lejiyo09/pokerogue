@@ -1,5 +1,5 @@
 import { pokerogueApi } from "#api/api";
-import { isAllowedSchoolEmail, registerWithFirebaseEmail } from "#app/firebase";
+import { isAllowedSchoolEmail, registerWithFirebaseEmail, signInWithFirebaseEmail } from "#app/firebase";
 import { globalScene } from "#app/global-scene";
 import { UiMode } from "#enums/ui-mode";
 import type { ModalConfig } from "#types/ui-types";
@@ -14,20 +14,47 @@ const ERR_NICKNAME_IN_USE = "failed to add account record";
 const ERR_FAILED_TO_GENERATE_UUID = "failed to generate uuid";
 const ERR_FAILED_TO_GENERATE_PASSWORD = "failed to generate salt";
 
-/** Maps a `registerWithFirebaseEmail` failure to a readable message. */
+/** Maps a `registerWithFirebaseEmail`/`signInWithFirebaseEmail` failure to a readable message. */
 function readableFirebaseRegisterError(err: unknown): string {
   const code = err && typeof err === "object" && "code" in err ? String(err.code) : "";
   switch (code) {
     case "auth/invalid-email":
       return "The provided email is invalid";
-    case "auth/email-already-in-use":
-      return "An account already exists for this email";
     case "auth/weak-password":
       return i18next.t("menu:invalidRegisterPassword");
+    case "auth/invalid-credential":
+    case "auth/wrong-password":
+    case "auth/user-not-found":
+      // Only reachable via getOrCreateFirebaseIdToken's sign-in fallback:
+      // an account already exists for this email, and this password isn't
+      // its password.
+      return "An account already exists for this email, and this password doesn't match it";
     case "auth/too-many-requests":
       return i18next.t("menu:pleaseTryAgainLater");
     default:
       return i18next.t("menu:pleaseTryAgainLater");
+  }
+}
+
+/**
+ * Registers a new Firebase account for `email`/`password`, or - if one
+ * already exists (`auth/email-already-in-use`) - signs into it instead. That
+ * case happens whenever a Firebase account was created but its matching
+ * rogueserver account never finished registering (e.g. the account's very
+ * first login was tried from the Login screen, which never sends a nickname
+ * - see loginWithIdentity's doc comment); without this fallback, that
+ * account could never register OR log in again. Either way, returns an ID
+ * token to exchange with the server via `loginWithFirebase(idToken, nickname)`.
+ */
+async function getOrCreateFirebaseIdToken(email: string, password: string): Promise<string> {
+  try {
+    return await registerWithFirebaseEmail(email, password);
+  } catch (err) {
+    const code = err && typeof err === "object" && "code" in err ? err.code : "";
+    if (code !== "auth/email-already-in-use") {
+      throw err;
+    }
+    return await signInWithFirebaseEmail(email, password);
   }
 }
 
@@ -130,7 +157,7 @@ export class RegistrationFormUiHandler extends LoginRegisterInfoContainerUiHandl
         }
         const [emailInput, nicknameInput, passwordInput] = this.inputs;
 
-        registerWithFirebaseEmail(emailInput.text, passwordInput.text)
+        getOrCreateFirebaseIdToken(emailInput.text, passwordInput.text)
           .then(idToken => pokerogueApi.account.loginWithFirebase(idToken, nicknameInput.text))
           .then(error => {
             if (!error && originalRegistrationAction) {

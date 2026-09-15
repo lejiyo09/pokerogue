@@ -11,6 +11,10 @@ import i18next from "i18next";
 // TODO: Centralize server error constants
 const ERR_FAILED_TO_GENERATE_TOKEN = "failed to generate token";
 const ERR_FAILED_TO_ADD_SESSION = "failed to add account session";
+// Sent by the server the first time it ever sees this Firebase account (see
+// loginWithIdentity) - the login form never sends a nickname, so that first
+// sign-in has to happen via Register instead.
+const ERR_NO_ACCOUNT_YET = "invalid nickname";
 
 /** Maps a `signInWithFirebaseEmail` failure to a readable message. */
 function readableFirebaseSignInError(err: unknown): string {
@@ -64,6 +68,8 @@ export class LoginFormUiHandler extends OAuthProvidersUiHandler {
         return `${i18next.t("menu:serverErrorGenerateToken")}\n${i18next.t("menu:pleaseTryAgainLater")}`;
       case ERR_FAILED_TO_ADD_SESSION:
         return `${i18next.t("menu:serverErrorAddSession")}\n${i18next.t("menu:pleaseTryAgainLater")}`;
+      case ERR_NO_ACCOUNT_YET:
+        return "No account exists yet for this email - use Register instead";
     }
 
     return super.getReadableErrorMessage(error);
