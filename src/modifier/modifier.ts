@@ -1,4 +1,5 @@
 import { applyAbAttrs } from "#abilities/apply-ab-attrs";
+import { loggedInUser } from "#app/account";
 import { audioManager } from "#app/global-audio-manager";
 import { globalScene } from "#app/global-scene";
 import { speciesDataRegistry } from "#app/global-species-data-registry";
@@ -33,6 +34,7 @@ import type {
   FormChangeItemModifierType,
   ModifierOverride,
   ModifierType,
+  ModifierTypeKeys,
   PokemonBaseStatTotalModifierType,
   PokemonExpBoosterModifierType,
   PokemonFriendshipBoosterModifierType,
@@ -3759,6 +3761,72 @@ export function overrideModifiers(isPlayer = true): void {
         globalScene.addEnemyModifier(modifier, true, true);
       }
     }
+  }
+}
+
+/**
+ * Grants the {@linkcode loggedInUser | logged-in account} with cheats
+ * enabled a full kit of account-wide "already own" persistent modifiers at
+ * the start of a new game: Poké Balls and vouchers maxed out to
+ * {@linkcode MAX_PER_TYPE_POKEBALLS}, plus every whole-run charm/booster
+ * that isn't tied to a specific Pokémon (EXP Share, Shiny Charm, Candy Jar,
+ * etc.). Deliberately excludes anything that needs a specific Pokémon as a
+ * target (held items like Leftovers, Soul Dew, ...) - granting those with
+ * no target would crash (see `PokemonHeldItemModifierType`'s factories,
+ * which all index into `args[0]`); `overrideHeldItems` is the mechanism
+ * that exists for that, and always needs a specific Pokémon passed in.
+ */
+export function grantCheatStartingItems(): void {
+  if (!loggedInUser?.cheatsEnabled) {
+    return;
+  }
+
+  const maxedOutNames: ModifierTypeKeys[] = [
+    "POKEBALL",
+    "GREAT_BALL",
+    "ULTRA_BALL",
+    "ROGUE_BALL",
+    "MASTER_BALL",
+    "VOUCHER",
+    "VOUCHER_PLUS",
+    "VOUCHER_PREMIUM",
+  ];
+  const oneOfEachNames: ModifierTypeKeys[] = [
+    "MEGA_BRACELET",
+    "DYNAMAX_BAND",
+    "TERA_ORB",
+    "MAP",
+    "EXP_SHARE",
+    "EXP_BALANCE",
+    "OVAL_CHARM",
+    "EXP_CHARM",
+    "SUPER_EXP_CHARM",
+    "GOLDEN_EXP_CHARM",
+    "AMULET_COIN",
+    "COIN_CASE",
+    "LOCK_CAPSULE",
+    "HEALING_CHARM",
+    "CANDY_JAR",
+    "BERRY_POUCH",
+    "SHINY_CHARM",
+    "ABILITY_CHARM",
+    "CATCHING_CHARM",
+    "IV_SCANNER",
+    "GOLDEN_POKEBALL",
+    "SILVER_POKEBALL",
+  ];
+  const accountWideItems: ModifierOverride[] = [
+    ...maxedOutNames.map(name => ({ name, count: MAX_PER_TYPE_POKEBALLS }) as ModifierOverride),
+    ...oneOfEachNames.map(name => ({ name }) as ModifierOverride),
+  ];
+
+  for (const item of accountWideItems) {
+    const modifierFunc = modifierTypes[item.name];
+    const modifierType: ModifierType = modifierFunc();
+
+    const modifier = modifierType.withIdFromFunc(modifierFunc).newModifier() as PersistentModifier;
+    modifier.stackCount = item.count || 1;
+    globalScene.addModifier(modifier, true, false, false, true);
   }
 }
 
