@@ -14,19 +14,6 @@ export const firebaseApp: FirebaseApp = initializeApp(firebaseConfig);
 export const firebaseAuth: Auth = getAuth(firebaseApp);
 
 /**
- * Matches the school email shape the server independently re-checks
- * (`allowedSchoolEmail` in rogueserver's `api/account/firebase.go`). Used
- * here only to reject an obviously wrong email before creating a Firebase
- * account for it - the server's check is the real security boundary and is
- * never skipped, regardless of what this returns.
- */
-const ALLOWED_SCHOOL_EMAIL = /^2026\d{4}@hanilgo\.cnehs\.kr$/;
-
-export function isAllowedSchoolEmail(email: string): boolean {
-  return ALLOWED_SCHOOL_EMAIL.test(email);
-}
-
-/**
  * Creates a Firebase email/password account for `email` and returns the
  * resulting ID token, for exchanging with the server
  * (`/account/login/firebase`) via {@linkcode PokerogueAccountApi.loginWithFirebase}.

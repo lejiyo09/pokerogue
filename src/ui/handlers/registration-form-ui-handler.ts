@@ -1,6 +1,6 @@
 import { pokerogueApi } from "#api/api";
-import { isAllowedSchoolEmail, registerWithFirebaseEmail, signInWithFirebaseEmail } from "#app/firebase";
 import { globalScene } from "#app/global-scene";
+import { isAllowedSchoolEmail } from "#data/school-email";
 import { UiMode } from "#enums/ui-mode";
 import type { ModalConfig } from "#types/ui-types";
 import type { InputFieldConfig } from "#ui/form-modal-ui-handler";
@@ -55,6 +55,9 @@ function readableFirebaseRegisterError(err: unknown): string {
  * token to exchange with the server via `loginWithFirebase(idToken, nickname)`.
  */
 async function getOrCreateFirebaseIdToken(email: string, password: string): Promise<string> {
+  // Dynamically imported so the Firebase SDK - unused by anyone who never
+  // opens this form - isn't part of the app's main eager bundle.
+  const { registerWithFirebaseEmail, signInWithFirebaseEmail } = await import("#app/firebase");
   try {
     return await registerWithFirebaseEmail(email, password);
   } catch (err) {

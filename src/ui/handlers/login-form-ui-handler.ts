@@ -1,5 +1,4 @@
 import { pokerogueApi } from "#api/api";
-import { signInWithFirebaseEmail } from "#app/firebase";
 import { globalScene } from "#app/global-scene";
 import { UiMode } from "#enums/ui-mode";
 import type { ModalConfig } from "#types/ui-types";
@@ -116,7 +115,10 @@ export class LoginFormUiHandler extends OAuthProvidersUiHandler {
 
       const [emailInput, passwordInput] = this.inputs;
 
-      signInWithFirebaseEmail(emailInput.text, passwordInput.text)
+      // Dynamically imported so the Firebase SDK - unused by anyone who
+      // never opens this form - isn't part of the app's main eager bundle.
+      import("#app/firebase")
+        .then(({ signInWithFirebaseEmail }) => signInWithFirebaseEmail(emailInput.text, passwordInput.text))
         .then(idToken => pokerogueApi.account.loginWithFirebase(idToken))
         .then(error => {
           if (!error && originalLoginAction) {
