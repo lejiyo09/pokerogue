@@ -299,28 +299,44 @@ export class GameData {
       return false;
     }
 
+    let success: boolean;
     if (bypassLogin) {
-      return await this.initSystem(decrypt(localStorage.getItem(`data_${loggedInUser?.username}`)!, bypassLogin)); // TODO: is this bang correct?
-    }
-    const saveDataOrErr = await pokerogueApi.savedata.system.get({ clientSessionId });
+      success = await this.initSystem(decrypt(localStorage.getItem(`data_${loggedInUser?.username}`)!, bypassLogin)); // TODO: is this bang correct?
+    } else {
+      const saveDataOrErr = await pokerogueApi.savedata.system.get({ clientSessionId });
 
-    if (typeof saveDataOrErr === "number" || !saveDataOrErr || saveDataOrErr.length === 0 || saveDataOrErr[0] !== "{") {
-      if (saveDataOrErr === 404) {
-        globalScene.phaseManager.queueMessage(ErrorMessages.DATA_NOT_FOUND, null, true);
-        return true;
-      }
-      if (typeof saveDataOrErr === "string" && saveDataOrErr.includes("Too many connections")) {
-        globalScene.phaseManager.queueMessage(ErrorMessages.TOO_MANY_CONNECTIONS, null, true);
+      if (
+        typeof saveDataOrErr === "number"
+        || !saveDataOrErr
+        || saveDataOrErr.length === 0
+        || saveDataOrErr[0] !== "{"
+      ) {
+        if (saveDataOrErr === 404) {
+          globalScene.phaseManager.queueMessage(ErrorMessages.DATA_NOT_FOUND, null, true);
+          return true;
+        }
+        if (typeof saveDataOrErr === "string" && saveDataOrErr.includes("Too many connections")) {
+          globalScene.phaseManager.queueMessage(ErrorMessages.TOO_MANY_CONNECTIONS, null, true);
+          return false;
+        }
         return false;
       }
-      return false;
+
+      const cachedSystem = localStorage.getItem(`data_${loggedInUser?.username}`);
+      success = await this.initSystem(
+        saveDataOrErr,
+        cachedSystem ? AES.decrypt(cachedSystem, saveKey).toString(enc.Utf8) : undefined,
+      );
     }
 
-    const cachedSystem = localStorage.getItem(`data_${loggedInUser?.username}`);
-    return await this.initSystem(
-      saveDataOrErr,
-      cachedSystem ? AES.decrypt(cachedSystem, saveKey).toString(enc.Utf8) : undefined,
-    );
+    // Re-applied every load (not just once at registration) so a returning
+    // cheat account always starts starter select fully unlocked, even
+    // before ever opening the "Cheats" menu - see menu-ui-handler.ts.
+    if (success && loggedInUser?.cheatsEnabled) {
+      this.unlockEverythingForCheats();
+    }
+
+    return success;
   }
 
   /**
