@@ -37,3 +37,4 @@ ignore:
    - .devcontainer
    - "LICENSES"
    - .idea
+   - .claude
