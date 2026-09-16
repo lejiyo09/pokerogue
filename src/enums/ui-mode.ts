@@ -49,4 +49,5 @@ export enum UiMode {
   ALERT_MODAL,
   PVP_JOIN_FORM,
   CHEAT_LEVEL_FORM,
+  PVP_TEAM_BUILDER,
 }

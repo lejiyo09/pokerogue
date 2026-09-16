@@ -17,6 +17,14 @@ import { TrainerSlot } from "#enums/trainer-slot";
 import { type EnemyPokemon, PlayerPokemon } from "#field/pokemon";
 import { PokemonMove } from "#moves/pokemon-move";
 import type { PvpPartyMemberDto } from "#net/pvp-protocol-types";
+import type { PokemonData } from "#system/pokemon-data";
+
+/**
+ * The level every PvP battle is normalized to, regardless of a banked individual's actual PvE
+ * level - see docs/pvp-progression-design.md §4 (PvE→PvP normalization: identity preserved,
+ * level normalized).
+ */
+export const PVP_BATTLE_LEVEL = 50;
 
 /**
  * Generate a fully-determined {@linkcode PvpPartyMemberDto} for `species`/`level`/`moves`.
@@ -45,6 +53,35 @@ export function generatePvpPartyMemberDto(species: SpeciesId, level: number, mov
     variant: sample.variant,
     ivs: [...sample.ivs],
     nature: sample.nature,
+  };
+}
+
+/**
+ * Build a {@linkcode PvpPartyMemberDto} that preserves a banked individual's actual identity
+ * (species, IVs, ability, form, nature, gender, shininess/variant, moveset) from the PvP Global
+ * Pokémon Collection, overriding only its level to `battleLevel` - see
+ * docs/pvp-progression-design.md §4 (PvE→PvP normalization) and §2 (Global Collection).
+ * @remarks
+ * `data` must not be a fused individual - `PvpPartyMemberDto` has no `fusionSpecies` field, since
+ * representing a fusion in a PvP battle requires `pvp-server` protocol changes this session
+ * doesn't make (docs/pvp-progression-design.md §2.6). Callers are expected to have already
+ * filtered those out.
+ * @param data - The banked individual's data
+ * @param battleLevel - The PvP battle level to submit this individual at (see {@linkcode PVP_BATTLE_LEVEL})
+ */
+export function pvpPartyMemberDtoFromBankedPokemon(data: PokemonData, battleLevel: number): PvpPartyMemberDto {
+  return {
+    species: data.species,
+    level: battleLevel,
+    moves: data.moveset.map(move => move.moveId),
+    id: data.id,
+    abilityIndex: data.abilityIndex,
+    formIndex: data.formIndex,
+    gender: data.gender,
+    shiny: data.shiny,
+    variant: data.variant,
+    ivs: [...data.ivs],
+    nature: data.nature,
   };
 }
 

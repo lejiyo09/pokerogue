@@ -47,6 +47,7 @@ import { PokedexPageUiHandler } from "#ui/pokedex-page-ui-handler";
 import { PokedexScanUiHandler } from "#ui/pokedex-scan-ui-handler";
 import { PokedexUiHandler } from "#ui/pokedex-ui-handler";
 import { PvpJoinRoomFormUiHandler } from "#ui/pvp-join-room-form-ui-handler";
+import { PvpTeamBuilderUiHandler } from "#ui/pvp-team-builder-ui-handler";
 import { RegistrationFormUiHandler } from "#ui/registration-form-ui-handler";
 import { RenameFormUiHandler } from "#ui/rename-form-ui-handler";
 import { RenameRunFormUiHandler } from "#ui/rename-run-ui-handler";
@@ -188,6 +189,7 @@ export class UI extends Phaser.GameObjects.Container {
       new AlertModalUiHandler(),
       new PvpJoinRoomFormUiHandler(),
       new CheatLevelFormUiHandler(),
+      new PvpTeamBuilderUiHandler(),
     ];
   }
 

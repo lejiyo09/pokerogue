@@ -14,8 +14,6 @@ import { Gender } from "#data/gender";
 import { BattleType } from "#enums/battle-type";
 import { GameModes } from "#enums/game-modes";
 import { ModifierPoolType } from "#enums/modifier-pool-type";
-import { MoveId } from "#enums/move-id";
-import { SpeciesId } from "#enums/species-id";
 import { UiMode } from "#enums/ui-mode";
 import { Unlockables } from "#enums/unlockables";
 import { getBiomeKey } from "#field/arena";
@@ -24,9 +22,10 @@ import { getDailyRunStarterModifiers, regenerateModifierPoolThresholds } from "#
 import type { BattleStartMessage, PvpMode, PvpPartyMemberDto } from "#net/pvp-protocol-types";
 import { PvpRoomManager } from "#net/pvp-room-manager";
 import { getPvpSession, setPvpSession } from "#net/pvp-session";
-import { generatePvpPartyMemberDto, setUpPvpParty } from "#net/pvp-team-setup";
+import { setUpPvpParty } from "#net/pvp-team-setup";
 import { vouchers } from "#system/voucher";
 import type { OptionSelectItem, OptionSelectModeConfig } from "#types/ui-types";
+import type { PvpTeamBuilderArgs } from "#ui/pvp-team-builder-ui-handler";
 import { SaveSlotUiMode } from "#ui/save-slot-select-ui-handler";
 import { isLocalServerConnected } from "#utils/common";
 import i18next from "i18next";
@@ -412,11 +411,11 @@ export class TitlePhase extends Phase {
     super.end();
   }
 
-  // #region PvP (see docs/pvp-online-battle-design.md)
+  // #region PvP (see docs/pvp-online-battle-design.md and docs/pvp-progression-design.md)
   //
-  // MVP: a fixed template team rather than a full team-builder UI (design doc §10, step 1).
-  // The team-builder UI, double battles, and a proper reward-free battle-end flow remain
-  // unimplemented - see the summary posted alongside this code for the full "what's not done yet" list.
+  // Team selection now goes through PvpTeamBuilderUiHandler (the player's own PvP Global
+  // Pokémon Collection, docs/pvp-progression-design.md §2/§9), not a hardcoded template.
+  // Double battles and a proper reward-free battle-end flow remain unimplemented.
 
   private showPvpMenu(): void {
     const { ui } = globalScene;
@@ -492,16 +491,24 @@ export class TitlePhase extends Phase {
     ui.setMode(UiMode.MESSAGE);
     ui.showText("Waiting for the opponent...");
 
-    session.onRoomReady(() => this.submitFixedPvpTeamAndReady(session));
+    session.onRoomReady(() => this.openPvpTeamBuilder(session));
     session.onOpponentDisconnected(() => this.abortPvpSetup(new Error("The opponent disconnected.")));
   }
 
-  private submitFixedPvpTeamAndReady(session: PvpRoomManager): void {
+  /**
+   * Lets the player pick their team from their PvP Global Pokémon Collection before submitting
+   * it and readying up - see `PvpTeamBuilderUiHandler`.
+   */
+  private openPvpTeamBuilder(session: PvpRoomManager): void {
+    globalScene.ui.setOverlayMode(UiMode.PVP_TEAM_BUILDER, {
+      onConfirm: (myTeam: PvpPartyMemberDto[]) => this.submitPvpTeamAndReady(session, myTeam),
+      onCancel: () => this.abortPvpSetup(new Error("Team selection cancelled.")),
+    } satisfies PvpTeamBuilderArgs);
+  }
+
+  private submitPvpTeamAndReady(session: PvpRoomManager, myTeam: PvpPartyMemberDto[]): void {
     const { ui } = globalScene;
 
-    const myTeam: PvpPartyMemberDto[] = [
-      generatePvpPartyMemberDto(SpeciesId.PIKACHU, 50, [MoveId.THUNDERBOLT, MoveId.QUICK_ATTACK, MoveId.IRON_TAIL]),
-    ];
     session.submitTeam(myTeam);
     session.ready();
 
