@@ -2,6 +2,7 @@ import { PokerogueAccountApi } from "#api/account-api";
 import { PokerogueAdminApi } from "#api/admin-api";
 import { ApiBase } from "#api/api-base";
 import { PokerogueDailyApi } from "#api/daily-api";
+import { PokeroguePvpCollectionApi } from "#api/pvp-collection-api";
 import { PokerogueSavedataApi } from "#api/savedata-api";
 import { bypassLogin } from "#constants/app-constants";
 import type { TitleStatsResponse } from "#types/api";
@@ -12,6 +13,7 @@ export class PokerogueApi extends ApiBase {
   public readonly daily: PokerogueDailyApi;
   public readonly admin: PokerogueAdminApi;
   public readonly savedata: PokerogueSavedataApi;
+  public readonly pvpCollection: PokeroguePvpCollectionApi;
 
   constructor(base: string) {
     super(base);
@@ -20,6 +22,7 @@ export class PokerogueApi extends ApiBase {
     this.daily = new PokerogueDailyApi(base);
     this.admin = new PokerogueAdminApi(base);
     this.savedata = new PokerogueSavedataApi(base);
+    this.pvpCollection = new PokeroguePvpCollectionApi(base);
   }
 
   /** Request game title stats. */

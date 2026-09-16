@@ -18,6 +18,7 @@ import { allMoves } from "#data/data-lists";
 import type { Egg } from "#data/egg";
 import type { PokemonSpecies } from "#data/pokemon-species";
 import { loadPositionalTag } from "#data/positional-tags/load-positional-tag";
+import { syncPvpCollection } from "#data/pvp/collection-sync";
 import { AbilityAttr } from "#enums/ability-attr";
 import { BattleType } from "#enums/battle-type";
 import { ChallengeType } from "#enums/challenge-type";
@@ -1272,6 +1273,10 @@ export class GameData {
     }
 
     if (!saveError) {
+      // Not awaited - banking is not on the critical path for a successful save,
+      // and syncPvpCollection() never rejects (network/encode failures are caught
+      // and simply leave the affected members to retry on the next saveAll()).
+      syncPvpCollection().catch(err => console.warn("Could not sync PvP collection!", err));
       return true;
     }
 
