@@ -176,3 +176,23 @@ export interface UpsertPvpCollectionRequest {
 }
 
 // #endregion PvP Collection API
+
+// #region PvP Rankings API
+// See `docs/pvp-progression-design.md` §9 for the design this implements.
+
+/** One row of the PvP lobby's ranking list. */
+export interface PvpRanking {
+  rank: number;
+  username: string;
+  wins: number;
+  losses: number;
+}
+
+export interface GetPvpRankingsRequest {
+  /** 1-indexed; defaults to `1` server-side if omitted. */
+  page?: number;
+}
+
+export type GetPvpRankingsResponse = PvpRanking[];
+
+// #endregion PvP Rankings API
