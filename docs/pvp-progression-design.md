@@ -78,6 +78,32 @@ interface BankedPokemon {
 
 이 셋 중 어느 것도 "작은 변경"이 아니므로, 전체 로드맵에서 **가장 먼저, 별도 단계로** 잡아야 한다는 사용자의 원래 순서(1️⃣ Global Collection)가 정확히 맞다.
 
+### 2.4 대안(사용자 제안): 새 서브시스템 없이 "현재 세이브 슬롯의 파티"만 재사용
+
+사용자가 제안한 단순화안 — *"파티 6마리 선택창은 PvE 클래식 포켓몬 처음 선택창을 응용하고, 거기 뜨는 포켓몬은 세이브에 저장된 파티 포켓몬만 넣으면 되지 않냐"* — 를 코드로 검증했다. 결론부터: **데이터 계층만 보면 이미 거의 다 만들어져 있다.**
+
+기존 "이어하기(Continue)" 화면(`save-slot-select-ui-handler.ts`)이 정확히 이 작업을 이미 하고 있다:
+
+- `populateSessionSlots()`(`:323`)가 슬롯 5개(`SESSION_SLOTS_COUNT`) 각각에 대해 `SessionSlot`을 만들고 `load()`를 호출한다.
+- `SessionSlot.load()`(`:625`)는 `globalScene.gameData.getSession(this.slotId)`를 호출하는데, 이 `getSession()`(`game-data.ts:802`)은 로컬스토리지 캐시 또는 서버(`pokerogueApi.savedata.session.get`)에서 **그 슬롯의 완전한 `SessionSaveData`**(즉 `party: PokemonData[]` 전체 — 종/레벨/개체값/성격/특성/기술/보유 아이템까지 포함하는 완전한 개체 데이터)를 그대로 가져온다.
+- `SessionSlot.setupWithData()`(`:552`)는 이미 이 `data.party`를 순회하며 각 개체를 `p.toPokemon()`으로 되살려 아이콘+레벨을 그려 보여준다(`:579-600`) — "세이브에 저장된 파티 포켓몬을 목록으로 보여주는" 로직이 **글자 그대로 이미 존재**한다.
+
+즉 새 DB 테이블도, 새 서버 API도 없이, **슬롯 0~4에 대해 `getSession(slotId)`를 호출해 `.party`를 모으기만 하면** 최대 5슬롯 × 6마리 = 최대 30마리의 실제 개체 데이터를 PvP 팀빌더 후보로 쓸 수 있다. 서버(`rogueserver`, `pvp-server`) 어느 쪽도 건드릴 필요가 없는, 순수 클라이언트 단독 구현이다.
+
+**다만 2장의 Global Collection과는 본질적으로 다른 것**이라는 점은 분명히 해야 한다:
+
+| | 2장: Global Collection | 2.4절: 세이브 슬롯 재사용 |
+|---|---|---|
+| 저장 위치 | 계정 전역 신규 테이블 | 기존 `SessionSaveData`(런 종속) |
+| 영속성 | 런이 끝나도 영구 보존 | **런이 끝나고 그 슬롯에 새 런을 시작하는 순간 덮어써져 사라짐** — "컬렉션"이 아니라 "지금 진행 중인 런들의 스냅샷" |
+| 최대 보유 수 | 무제한(정책상 상한 논의 중, 8절) | 사실상 "동시에 진행 중인 런 개수 × 6" — 대부분의 플레이어는 슬롯 1~2개만 사용하므로 실제로는 6~12마리 수준일 가능성이 높음 |
+| 서버 변경 | 필요(새 테이블+API) | **불필요** |
+| UI 작업 | 신규 컬렉션 뷰 + 팀빌더 | 팀빌더만(단, 아래 주의점 있음) |
+
+**UI 재사용 관련 주의점**: "클래식 포켓몬 처음 선택창"(`starter-select-ui-handler.ts`)은 도감/사탕 데이터를 기반으로 **종(species)을 고르고 그 자리에서 IV/특성/성격/폼을 커스터마이징**하는 화면이다. 반면 세이브 슬롯의 `PokemonData`는 이미 IV/성격/특성/기술이 확정된 "완성된 개체"다. 따라서 그 화면을 100% 그대로 쓰기보다는, 커스터마이징 패널은 빼고 "이미 확정된 개체 목록에서 6마리 고르기"에 가깝게(오히려 이 절에서 본 `SessionSlot`의 아이콘+레벨 나열 방식에 더 가깝게) 조정하는 편이 맞다 — 완전 재사용은 아니고 부분 재사용.
+
+**권장**: 이 방식을 Global Collection(2장)을 **대체**하는 게 아니라, 로드맵 1단계를 **선행하는 0단계(빠른 MVP)**로 채택한다. 서버 작업 없이 클라이언트만으로 "일단 동작하는 PvP 팀 선택"을 빨리 검증해볼 수 있고, 이후 2장의 영구 Global Collection은 "여러 런에 걸쳐 모은 개체를 보관하고 싶다"는 수요가 실제로 확인되면 그때 얹는 v2 확장으로 미룰 수 있다. 로드맵(7장)과 미결 사항(8절)에도 이 선택지를 반영했다.
+
 ---
 
 ## 3. 아이템 언락 시스템
@@ -161,8 +187,9 @@ interface PvpRuleset {
 
 | 단계 | 내용 | 주요 작업 위치 |
 |---|---|---|
+| 0️⃣ (선택) | 세이브 슬롯 파티 재사용 MVP (2.4절) | `pokerogue`만(서버 변경 없음) — 5개 슬롯의 `getSession().party`를 모아 팀빌더 후보로 사용 |
 | 1️⃣ | Global Pokémon Collection | `rogueserver`(새 테이블/API) + `pokerogue`(입고 트리거, 컬렉션 조회 UI) |
-| 2️⃣ | PvP Team Builder | `pokerogue`(신규 UI) |
+| 2️⃣ | PvP Team Builder | `pokerogue`(신규 UI, 0단계를 했다면 그 UI를 확장) |
 | 3️⃣ | PvP Ruleset / 정규화 | `pokerogue`(4장의 변환 로직) + `pvp-server`(ruleset 배포/검증, 별도 승인 필요) |
 | 4️⃣ | 온라인 1v1 Single | 이미 대부분 존재 (`pvp-server/`, `pvp-online-battle-design.md` 참고) |
 | 5️⃣ | 온라인 1v1 Double | `pvp-server`(기존 `Battle.double`/`BattlerIndex` 확장, 설계 문서 §11 기준) |
@@ -177,6 +204,7 @@ interface PvpRuleset {
 
 ## 8. 이 설계에서 아직 결정되지 않은 것 (의도적으로 열어둠)
 
+- 0단계(2.4절, 세이브 슬롯 재사용 MVP)를 실제로 먼저 만들지, 아니면 처음부터 1단계(Global Collection)로 바로 갈지
 - 2.2절의 입고 시점(A/B/C)
 - 3.2절의 정확한 PvP 허용 아이템 allow-list(전체 `modifierTypes` 전수 조사 필요)
 - 5장 기믹의 구체적 해금 조건
