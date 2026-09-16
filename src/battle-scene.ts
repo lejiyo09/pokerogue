@@ -1,4 +1,5 @@
 import { applyAbAttrs } from "#abilities/apply-ab-attrs";
+import { loggedInUser } from "#app/account";
 import { Animation } from "#app/animations";
 import { Battle } from "#app/battle";
 import {
@@ -37,6 +38,7 @@ import { SpeciesFormChangeManualTrigger, SpeciesFormChangeTimeOfDayTrigger } fro
 import { Gender } from "#data/gender";
 import type { SpeciesFormChange } from "#data/pokemon-forms";
 import type { PokemonSpecies, PokemonSpeciesFilter } from "#data/pokemon-species";
+import { PvpBattle } from "#data/pvp-battle";
 import { getTypeRgb } from "#data/type";
 import { BattleType } from "#enums/battle-type";
 import { BattlerTagType } from "#enums/battler-tag-type";
@@ -229,7 +231,7 @@ export class BattleScene extends SceneBase {
   public lastEnemyTrainer: Trainer | null;
   public currentBattle: Battle;
   public pokeballCounts: PokeballCounts;
-  public money: number;
+  private _money: number;
   public pokemonInfoContainer: PokemonInfoContainer;
   private party: PlayerPokemon[];
   /** Session save data that pertains to Mystery Encounters */
@@ -1311,6 +1313,45 @@ export class BattleScene extends SceneBase {
   }
 
   /**
+   * Create and start a new online PvP battle.
+   *
+   * Unlike {@linkcode newBattle}, this method does **not** go through the wave/biome-driven
+   * battle generation pipeline (fixed battles, wild encounter generation, session loading, etc.) -
+   * a PvP match is a standalone, single battle rather than part of a roguelike run.
+   * @param battleSeed - The seed issued by the PvP server and shared by both participants,
+   * so that {@linkcode Battle.randSeedInt} produces identical results on both clients
+   * @param double - Whether this is a double (2v2) PvP battle
+   * @returns The newly created {@linkcode PvpBattle}
+   * @see docs/pvp-online-battle-design.md §9.2
+   */
+  public newPvpBattle(battleSeed: string, double: boolean): Battle {
+    // A neutral, weather/terrain-free field. Biome flavor is not meaningful for a PvP duel.
+    this.newArena(BiomeId.TOWN);
+
+    const resolved: NewBattleResolvedProps = {
+      battleType: BattleType.PVP,
+      // Not tied to any run progression - always `1`, and unused by PvP-specific logic.
+      waveIndex: 1,
+      double,
+    };
+
+    this.currentBattle = new PvpBattle(this.gameMode, resolved, battleSeed);
+    this.currentBattle.incrementTurn();
+
+    return this.currentBattle;
+  }
+
+  /**
+   * Replace the player's party with the given Pokemon, for a PvP match (see `newPvpBattle`).
+   * `party` is otherwise a private field, populated for a normal run via `SelectStarterPhase`;
+   * this is the PvP-specific equivalent.
+   * @param party - The {@linkcode PlayerPokemon}s to battle with, built via `setUpPvpParty` (`#net/pvp-team-setup`)
+   */
+  public setPvpParty(party: PlayerPokemon[]): void {
+    this.party = party;
+  }
+
+  /**
    * Helper function to {@linkcode BattleScene.newBattle | newBattle} to initialize variables
    * with defaults if no session data is provided.
    * @param fromSession - The session data being used to initialize the battle
@@ -1363,6 +1404,10 @@ export class BattleScene extends SceneBase {
       case BattleType.MYSTERY_ENCOUNTER:
         fixedDouble = false;
         break;
+      case BattleType.PVP:
+        // PvP matches are standalone (see `newPvpBattle`) and are never persisted as
+        // resumable session data, so this should be unreachable.
+        throw new Error("Attempted to resume a saved PvP battle session, which is not supported");
     }
 
     return {
@@ -2149,6 +2194,24 @@ export class BattleScene extends SceneBase {
       .setColor(isBoss ? "#f89890" : "#ffffff")
       .setShadowColor(isBoss ? "#984038" : "#636363")
       .setVisible(true);
+  }
+
+  /**
+   * The player's current money.
+   * @remarks
+   * For the {@linkcode loggedInUser | logged-in account} with cheats enabled
+   * (see `GameData.unlockEverythingForCheats`), every write to this - a
+   * purchase, a reward, a reset to 0 on `NewGamePhase`, anything - is pinned
+   * to {@linkcode Number.MAX_SAFE_INTEGER} instead, so money effectively
+   * never runs out for that account. This is the sole choke point for that:
+   * nothing that spends or grants money needs its own cheat-account check.
+   */
+  public get money(): number {
+    return this._money;
+  }
+
+  public set money(value: number) {
+    this._money = loggedInUser?.cheatsEnabled ? Number.MAX_SAFE_INTEGER : value;
   }
 
   updateMoneyText(forceVisible = true): void {

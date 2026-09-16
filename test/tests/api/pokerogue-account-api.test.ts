@@ -34,6 +34,7 @@ describe("Pokerogue Account API", () => {
         discordId: "23235353543535",
         googleId: "1ed1d1d11d1d1d1d1d1",
         hasAdminRole: false,
+        cheatsEnabled: false,
       };
       server.use(http.get(`${apiBase}/account/info`, () => HttpResponse.json(expectedAccountInfo)));
 
@@ -119,13 +120,146 @@ describe("Pokerogue Account API", () => {
       expect(console.warn).toHaveBeenCalledWith("Login failed!", 401, "Unauthorized");
     });
 
-    it('should return "Unknown login error!" and report a warning on ERROR', async () => {
-      server.use(http.post(`${apiBase}/account/login`, () => HttpResponse.error()));
+    it('should return "Unknown login error!" and report a warning after exhausting retries on repeated network-level failure', async () => {
+      let requestCount = 0;
+      server.use(
+        http.post(`${apiBase}/account/login`, () => {
+          requestCount++;
+          return HttpResponse.error();
+        }),
+      );
 
-      const error = await accountApi.login(loginParams);
+      const error = await accountApi.login(loginParams, 3, 0);
 
       expect(error).toBe("Unknown login error!");
+      expect(requestCount).toBe(3);
       expect(console.warn).toHaveBeenCalledWith("Login failed!", expect.any(Error));
+    });
+
+    it("should retry a network-level failure and succeed once the server answers", async () => {
+      let requestCount = 0;
+      server.use(
+        http.post(`${apiBase}/account/login`, () => {
+          requestCount++;
+          if (requestCount < 3) {
+            return HttpResponse.error();
+          }
+          return HttpResponse.json({ token: "abctest" });
+        }),
+      );
+
+      const error = await accountApi.login(loginParams, 5, 0);
+
+      expect(error).toBeNull();
+      expect(requestCount).toBe(3);
+    });
+
+    it("should NOT retry when the server itself responds with a real rejection", async () => {
+      let requestCount = 0;
+      server.use(
+        http.post(`${apiBase}/account/login`, () => {
+          requestCount++;
+          return new HttpResponse("Password is incorrect", { status: 401 });
+        }),
+      );
+
+      const error = await accountApi.login(loginParams, 5, 0);
+
+      expect(error).toBe("Password is incorrect");
+      expect(requestCount).toBe(1);
+    });
+  });
+
+  describe("Login With Firebase", () => {
+    const idToken = "firebase-id-token";
+
+    it("should return null and set the cookie on SUCCESS", async () => {
+      vi.spyOn(CookieUtils, "setCookie");
+      server.use(http.post(`${apiBase}/account/login/firebase`, () => HttpResponse.json({ token: "abctest" })));
+
+      const error = await accountApi.loginWithFirebase(idToken);
+
+      expect(error).toBeNull();
+      expect(cookies.setCookie).toHaveBeenCalledWith(SESSION_ID_COOKIE_NAME, "abctest");
+    });
+
+    it("should send the nickname on a first-time registration", async () => {
+      let receivedBody = "";
+      server.use(
+        http.post(`${apiBase}/account/login/firebase`, async ({ request }) => {
+          receivedBody = await request.text();
+          return HttpResponse.json({ token: "abctest" });
+        }),
+      );
+
+      await accountApi.loginWithFirebase(idToken, "newNickname");
+
+      const params = new URLSearchParams(receivedBody);
+      expect(params.get("idToken")).toBe(idToken);
+      expect(params.get("nickname")).toBe("newNickname");
+    });
+
+    it("should return error message and report a warning on FAILURE", async () => {
+      server.use(
+        http.post(
+          `${apiBase}/account/login/firebase`,
+          () => new HttpResponse('"foo@bar.com" is not an allowed school email', { status: 401 }),
+        ),
+      );
+
+      const error = await accountApi.loginWithFirebase(idToken);
+
+      expect(error).toBe('"foo@bar.com" is not an allowed school email');
+      expect(console.warn).toHaveBeenCalledWith("Firebase sign-in failed!", 401, "Unauthorized");
+    });
+
+    it('should return "Unknown sign-in error!" and report a warning after exhausting retries on repeated network-level failure', async () => {
+      let requestCount = 0;
+      server.use(
+        http.post(`${apiBase}/account/login/firebase`, () => {
+          requestCount++;
+          return HttpResponse.error();
+        }),
+      );
+
+      const error = await accountApi.loginWithFirebase(idToken, "", 3, 0);
+
+      expect(error).toBe("Unknown sign-in error!");
+      expect(requestCount).toBe(3);
+      expect(console.warn).toHaveBeenCalledWith("Firebase sign-in failed!", expect.any(Error));
+    });
+
+    it("should retry a network-level failure and succeed once the server answers", async () => {
+      let requestCount = 0;
+      server.use(
+        http.post(`${apiBase}/account/login/firebase`, () => {
+          requestCount++;
+          if (requestCount < 3) {
+            return HttpResponse.error();
+          }
+          return HttpResponse.json({ token: "abctest" });
+        }),
+      );
+
+      const error = await accountApi.loginWithFirebase(idToken, "", 5, 0);
+
+      expect(error).toBeNull();
+      expect(requestCount).toBe(3);
+    });
+
+    it("should NOT retry when the server itself responds with a real rejection", async () => {
+      let requestCount = 0;
+      server.use(
+        http.post(`${apiBase}/account/login/firebase`, () => {
+          requestCount++;
+          return new HttpResponse('"foo@bar.com" is not an allowed school email', { status: 401 });
+        }),
+      );
+
+      const error = await accountApi.loginWithFirebase(idToken, "", 5, 0);
+
+      expect(error).toBe('"foo@bar.com" is not an allowed school email');
+      expect(requestCount).toBe(1);
     });
   });
 

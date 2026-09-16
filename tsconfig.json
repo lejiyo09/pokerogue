@@ -70,6 +70,7 @@
       "#inputs/*": ["./src/configs/inputs/*.ts"],
       "#modifiers/*": ["./src/modifier/*.ts"],
       "#moves/*": ["./src/data/moves/*.ts"],
+      "#net/*": ["./src/net/*.ts"],
       "#mystery-encounters/*": [
         "./src/data/mystery-encounters/utils/*.ts",
         "./src/data/mystery-encounters/encounters/*.ts",

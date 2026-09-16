@@ -387,7 +387,7 @@ export class CommandPhase extends FieldPhase {
       } else {
         return true;
       }
-    } else if (battleType === BattleType.TRAINER) {
+    } else if (battleType === BattleType.TRAINER || battleType === BattleType.PVP) {
       this.queueShowText("battle:noPokeballTrainer");
     } else if (currentBattle.isBattleMysteryEncounter() && !currentBattle.mysteryEncounter!.catchAllowed) {
       this.queueShowText("battle:noPokeballMysteryEncounter");
@@ -585,6 +585,7 @@ export class CommandPhase extends FieldPhase {
     }
     if (
       currentBattle.battleType === BattleType.TRAINER
+      || currentBattle.battleType === BattleType.PVP
       || currentBattle.mysteryEncounter?.encounterMode === MysteryEncounterMode.TRAINER_BATTLE
     ) {
       this.queueShowText("battle:noEscapeTrainer");

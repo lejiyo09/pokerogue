@@ -14,7 +14,11 @@ function applyMoveAttrsInternal(
   move: Move,
   args: any[],
 ): void {
-  move.attrs.filter(attr => attrFilter(attr)).forEach(attr => attr.apply(user, target, move, args));
+  for (const attr of move.attrs) {
+    if (attrFilter(attr)) {
+      attr.apply(user, target, move, args);
+    }
+  }
 }
 
 function applyMoveChargeAttrsInternal(
@@ -24,7 +28,11 @@ function applyMoveChargeAttrsInternal(
   move: ChargingMove,
   args: any[],
 ): void {
-  move.chargeAttrs.filter(attr => attrFilter(attr)).forEach(attr => attr.apply(user, target, move, args));
+  for (const attr of move.chargeAttrs) {
+    if (attrFilter(attr)) {
+      attr.apply(user, target, move, args);
+    }
+  }
 }
 
 export function applyMoveAttrs(
@@ -34,7 +42,13 @@ export function applyMoveAttrs(
   move: Move,
   ...args: any[]
 ): void {
-  applyMoveAttrsInternal((attr: MoveAttr) => attr.is(attrType), user, target, move, args);
+  // Goes through `move.getAttrs`, which caches its filtered result per `attrType`, rather than
+  // `applyMoveAttrsInternal`'s generic (uncached) predicate scan. `attrType` isn't a literal here
+  // (it's a runtime union-typed param), so the result is cast back to the base `MoveAttr` type -
+  // matching what the old `attr: MoveAttr` predicate-based loop was statically typed as.
+  for (const attr of move.getAttrs(attrType) as MoveAttr[]) {
+    attr.apply(user, target, move, args);
+  }
 }
 
 export function applyFilteredMoveAttrs(

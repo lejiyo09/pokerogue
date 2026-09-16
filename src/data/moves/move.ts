@@ -175,6 +175,16 @@ export abstract class Move implements Localizable {
   public generation: number;
   public attrs: MoveAttr[] = [];
   /**
+   * Cache of {@linkcode attrs} filtered by attribute type, populated lazily by {@linkcode getAttrs}.
+   * @remarks
+   * All moves finish their `.attr(...)` builder chain before ever being queried via
+   * `hasAttr`/`getAttrs` (moves are only exposed through the `allMoves` registry once fully
+   * built), so once computed a given `attrType`'s filtered list stays valid - this avoids
+   * re-scanning `attrs` with an `instanceof` check on every call, which happens extremely often
+   * during move resolution (once or more per hit, per target, per multi-hit iteration).
+   */
+  private readonly attrCache = new Map<MoveAttrString, MoveAttr[]>();
+  /**
    * Conditions that must be met for the move to succeed when it is used.
    *
    * @remarks
@@ -315,11 +325,13 @@ export abstract class Move implements Localizable {
    * @returns An array containing all attributes matching `attrType`, or an empty array if none match.
    */
   getAttrs<T extends MoveAttrString>(attrType: T): MoveAttrMap[T][] {
-    const targetAttr = MoveAttrs[attrType];
-    if (!targetAttr) {
-      return [];
+    let cached = this.attrCache.get(attrType);
+    if (!cached) {
+      const targetAttr = MoveAttrs[attrType];
+      cached = targetAttr ? this.attrs.filter((a): a is MoveAttrMap[T] => a instanceof targetAttr) : [];
+      this.attrCache.set(attrType, cached);
     }
-    return this.attrs.filter((a): a is MoveAttrMap[T] => a instanceof targetAttr);
+    return cached as MoveAttrMap[T][];
   }
 
   /**
@@ -328,12 +340,7 @@ export abstract class Move implements Localizable {
    * @returns Whether this move has at least 1 attribute that matches `attrType`
    */
   hasAttr(attrType: MoveAttrString): boolean {
-    const targetAttr = MoveAttrs[attrType];
-    // Guard against invalid attrType
-    if (!targetAttr) {
-      return false;
-    }
-    return this.attrs.some(attr => attr instanceof targetAttr);
+    return this.getAttrs(attrType).length > 0;
   }
 
   /**

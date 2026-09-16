@@ -1,4 +1,5 @@
 import { globalScene } from "#app/global-scene";
+import { BattleType } from "#enums/battle-type";
 import { BattlerIndex } from "#enums/battler-index";
 import { TurnInitEvent } from "#events/battle-scene";
 import type { PlayerPokemon } from "#field/pokemon";
@@ -66,6 +67,9 @@ export class TurnInitPhase extends FieldPhase {
 
         if (pokemon.isPlayer()) {
           globalScene.phaseManager.pushNew("CommandPhase", i);
+        } else if (globalScene.currentBattle.battleType === BattleType.PVP) {
+          // In PvP, the "enemy" side is a remote human player rather than the AI.
+          globalScene.phaseManager.pushNew("RemoteCommandWaitPhase", i - BattlerIndex.ENEMY);
         } else {
           globalScene.phaseManager.pushNew("EnemyCommandPhase", i - BattlerIndex.ENEMY);
         }
