@@ -113,7 +113,40 @@ interface BankedPokemon {
 **구현 지점**:
 - 팀빌더 UI: 한 개체를 선택하면, 같은 `species`를 가진 다른 후보 개체는 그 선택이 해제될 때까지 비활성화(선택 불가 표시)해야 한다. 2.4절에서 재사용 대상으로 지목한 `SessionSlot` 나열 방식에는 이런 "선택 시 동종 상호 배제" 로직이 없으므로 팀빌더 UI에 신규로 추가해야 한다.
 - 서버 검증: 클라이언트 UI에서만 막으면 변조된 클라이언트가 우회할 수 있으므로, `pvp-server`(6장 요구사항에 추가 — 이 세션에서 직접 수정하지 않음)가 팀 제출 메시지 처리 시점에 같은 species 중복 여부를 서버 측에서도 재검증해야 한다. 3.3절("팀 내 중복 아이템 금지 — 서버 검증 지점")과 동일한 패턴.
-- 폼 변경체(메가/리전폼 등)나 `fusionSpecies`(두 종을 융합한 개체)를 "같은 종"으로 볼지는 별도 정책 결정이 필요 — 8절에 남겨둔다.
+### 2.6 폼 변경체·리전폼·융합체의 "같은 종" 판정 (사용자 제안 검증 결과)
+
+사용자가 제안한 "폼이 다르다고 팀 슬롯 우회를 허용하지 않는다"는 철학에는 전적으로 동의한다. 다만 실제 코드를 확인한 결과, 제안된 판정 기준 중 일부는 이 프로젝트의 실제 데이터 모델과 다르게 동작한다 — 아래는 코드로 검증한 최종 규칙이다.
+
+**① 메가진화·폼체인지(Black/White Kyurem 포함) → 이미 같은 `species` 값이라 별도 처리가 필요 없다.**
+
+이 프로젝트에서 메가진화와 폼체인지는 `SpeciesId`를 바꾸지 않고 `formIndex`만 바꾼다. 예를 들어 Mega Charizard X/Y는 둘 다 `SpeciesId.CHARIZARD` (`src/enums/species-id.ts:13`, 단일 항목)이고 `formIndex`만 1/2로 다르다(`off-stat-denylist.ts:270-271`이 이걸 `formIndex` 키로 구분하는 게 그 증거). **사용자가 예로 든 Black/White Kyurem도 정확히 이 패턴이다** — `SpeciesId.KYUREM` 하나에 `formIndex` 0/1/2(Normal/Black/White)로 구현되어 있고(`generation-05.ts:14460-14574`), 폼 전환은 `SpeciesFormChangeItemTrigger`(DNA Splicers 아이템)로 일어난다. 즉 **`species` 필드만 비교하고 `formIndex`는 아예 무시하면 이 케이스 전부가 공짜로 해결된다** — 사용자가 제안한 "canonical group 리졸버" 없이 기존 필드 비교만으로 충분하다.
+
+**② 리전폼(알로라/가라르 등) → 사용자 제안과 달리, 이 프로젝트에서는 완전히 별개의 `SpeciesId`다.**
+
+`SpeciesId.MEOWTH`(:105)와 `SpeciesId.ALOLA_MEOWTH = 2052`(:2071), `SpeciesId.GALAR_MEOWTH = 4052`(:2093)는 서로 다른 정수 ID이고, 각각 자기 진화 라인·`starterCost`·도감 슬롯을 독립적으로 가진다(예: `generation-07.ts:11234` — 알로라 나옹은 `starter: SpeciesId.ALOLA_MEOWTH`로 별도 스타터, 진화 대상도 `ALOLA_PERSIAN`으로 기본 나옹의 `PERSIAN`과 다름). **①과 달리, "리전폼을 기본종과 같은 그룹으로 묶기"는 필드 하나 무시하면 끝나는 문제가 아니라, 지금 코드베이스에 없는 신규 매핑 테이블(예: 나옹↔알로라 나옹↔가라르 나옹)을 새로 만들어 유지보수해야 하는 작업이다.** 이건 실제 신규 데이터 큐레이션 비용이 드는 결정이므로 8절 미결 사항으로 남긴다 — MVP 단계에서는 리전폼을 별개 종으로 취급(=묶지 않음)하는 쪽을 기본값으로 권장한다. 이 프로젝트의 다른 모든 시스템(도감, 스타터 코스트, 진화)이 이미 리전폼을 별개 종으로 취급하고 있어서, 그 기존 관례와 맞기 때문이다.
+
+**③ 융합(Splice/DNA Splicers) → 사용자가 우려한 "재료+결과물 동시 보유" 악용은, 실제 융합 메커니즘 자체가 구조적으로 막고 있다.**
+
+`Pokemon.fuse(pokemon2)`(`src/field/pokemon.ts:6375-6436`)를 코드로 추적하면: 융합이 일어나는 순간 `globalScene.getPlayerParty().splice(fusedPartyMemberIndex, 1)`로 **재료로 쓰인 두 번째 개체를 파티에서 즉시 제거하고 `pokemon.destroy()`까지 호출한다.** 즉 한 런 안에서는 "리자몽 + 이상해꽃 + 리자몽/이상해꽃 융합체"가 동시에 파티에 존재하는 상황 자체가 게임 엔진 차원에서 불가능하다 — 재료는 융합과 동시에 사라진다. (참고로 사용자가 예로 든 "큐레무 + 레시라무 → 화이트 큐레무"는 이 융합 메커니즘이 아니라 위 ①의 폼체인지다 — 레시라무는 소모되지 않고 파티에 남는 게 맞다. 레시라무는 큐레무와 다른 종이므로 함께 있어도 문제 없다.)
+
+**남는 허점은 딱 하나**: 2.4절 MVP처럼 세이브 슬롯 5개를 풀로 합치는 구조에서는, 세이브1의 "리자몽+이상해꽃 융합체"와 세이브2의 (한 번도 융합 안 된) 순수 "이상해꽃" 개체가 **서로 다른 런에서 온 별개의 살아있는 개체**이므로 동시에 후보 목록에 뜰 수 있다. 이 경우엔 사용자가 제안한 "융합 구성종 중 하나라도 팀에 있으면 중복 판정"이 정확히 맞는 해법이다.
+
+**최종 리졸버** (사용자 제안의 "canonical species group" 대신, 실측 결과 훨씬 단순해졌다):
+
+```ts
+/** PvP 종 중복 판정에 쓰이는, 한 개체가 "차지하는" 종 슬롯들. */
+function getPvpSpeciesSlots(data: PokemonData): SpeciesId[] {
+  // formIndex는 보지 않는다 - 메가/폼체인지(Black/White Kyurem 등)는 이미 같은 species 값이라
+  // 별도 처리가 필요 없다(2.6절 ①). 융합체는 species와 fusionSpecies 둘 다 "차지한다"(2.6절 ③).
+  return data.fusionSpecies ? [data.species, data.fusionSpecies] : [data.species];
+}
+
+/** 이미 선택된 팀원들과 종이 겹치는지 검사. 리전폼은 별개 종이므로(2.6절 ②) 그대로 SpeciesId 값 비교로 충분. */
+function conflictsWithTeam(candidate: PokemonData, team: PokemonData[]): boolean {
+  const candidateSlots = getPvpSpeciesSlots(candidate);
+  return team.some(member => getPvpSpeciesSlots(member).some(id => candidateSlots.includes(id)));
+}
+```
 
 ---
 
@@ -221,6 +254,7 @@ interface PvpRuleset {
 - 5장 기믹의 구체적 해금 조건
 - Global Collection의 용량 상한(무제한? 계정당 N마리?)
 - ~~같은 종을 여러 마리 입고했을 때 UI에서 어떻게 구분해 보여줄지~~ → 2.5절에서 해소: 목록엔 전부 노출, 팀 구성 시 종 단위로 1마리만 선택 가능(Species Clause)
-- 2.5절의 Species Clause에서 메가/리전폼 등 폼 변경체와 `fusionSpecies` 개체를 "같은 종"으로 취급할지
+- ~~메가/폼체인지, 융합체를 "같은 종"으로 취급할지~~ → 2.6절에서 코드 검증 완료: 메가·폼체인지는 `species` 필드가 이미 동일해 추가 작업 없이 해소, 융합체는 `species`+`fusionSpecies` 둘 다 검사하는 것으로 해소
+- **아직 열림**: 리전폼(알로라/가라르/히스이/팔데아)을 기본종과 같은 그룹으로 묶을지 — 묶으려면 이 코드베이스에 없는 신규 매핑 테이블이 필요(2.6절 ②). MVP 기본값은 "묶지 않음(별개 종 취급)"을 권장하되, 최종 결정 필요.
 
 이 항목들은 밸런스/UX 정책 결정이라 코드 조사만으로는 답이 나오지 않는다 — 구현에 들어가기 전에 확정이 필요하다.
