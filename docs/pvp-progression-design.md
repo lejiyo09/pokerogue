@@ -253,8 +253,9 @@ interface PvpRuleset {
 | 7️⃣ | Random Matchmaking | 신규 — `pvp-server`에 매칭 큐 필요 |
 | 8️⃣ | Replay / Spectator | 신규 — 턴 커맨드 로그를 저장/재생하는 기능, `SUBMIT_COMMAND` 로그를 누적 저장하면 기반은 이미 있음 |
 | 9️⃣ | Ranked / 시즌 | 신규 — 별도 레이팅 데이터 계층 |
+| 🔟 | PvP 로비 (9장 참고) | `rogueserver`(9.2의 신규 랭킹 테이블/API) + `pokerogue`(9.3의 신규 로비 UI) — 6️⃣/9️⃣를 한 화면으로 묶는 것이라 그 둘의 최소 기반이 끝난 뒤가 자연스럽다 |
 
-**1~3단계가 이 문서의 범위**이고, 이 문서가 다루지 않는 4단계 이후는 기존 `pvp-online-battle-design.md`가 이미 상당 부분 설계해두었다.
+**1~3단계가 이 문서의 범위**이고, 이 문서가 다루지 않는 4단계 이후는 기존 `pvp-online-battle-design.md`가 이미 상당 부분 설계해두었다. 로비(🔟)는 9장에서 별도로 다룬다.
 
 **0단계(세이브 슬롯 재사용 MVP)를 건너뛰는 판단 근거**: 이 문서 작성 시점엔 0단계가 "서버 작업 없이 빠르게 동작을 검증"할 방법으로 유효했지만, 이후 사용자가 2.2절의 입고 시점을 **"PvE 파티 변경 시 동기화"**로 확정했다 — 이 정책 자체가 "Global Collection이라는 영속 저장소가 존재한다"는 것을 전제로 한다(0단계엔 애초에 입고할 대상이 없다, 그때그때 세이브 슬롯을 읽을 뿐이므로). 아이템 allow-list(VGC 기준)와 기믹 해금 달력(10~12월)까지 구체적으로 확정된 걸 보면 이건 임시 프로토타입이 아니라 실제로 밀고 나갈 기능이라는 뜻이므로, 0단계용 팀빌더 UI를 만들었다가 1단계에서 다시 만드는 이중 작업을 피하고 **처음부터 1단계(Global Collection)로 직행**하는 편이 맞다.
 
@@ -272,3 +273,46 @@ interface PvpRuleset {
 - ~~같은 종을 여러 마리 입고했을 때 UI에서 어떻게 구분해 보여줄지~~ → 2.5절에서 해소: 목록엔 전부 노출, 팀 구성 시 종 단위로 1마리만 선택 가능(Species Clause)
 - ~~메가/폼체인지, 융합체를 "같은 종"으로 취급할지~~ → 2.6절에서 코드 검증 완료: 메가·폼체인지는 `species` 필드가 이미 동일해 추가 작업 없이 해소, 융합체는 `species`+`fusionSpecies` 둘 다 검사하는 것으로 해소
 - ~~리전폼(알로라/가라르/히스이/팔데아)을 기본종과 같은 그룹으로 묶을지~~ → **사용자 확정: 별개 종으로 취급(묶지 않음)**. 신규 매핑 테이블 불필요, 기존 `SpeciesId` 비교만으로 충분(2.6절 ②).
+- 9.2절의 "승-패 카운트만으로 충분한가, 아니면 처음부터 Elo/Glicko 같은 실제 레이팅이 필요한가" — 사용자가 "지금있는 소재를 최대한 활용"을 우선하라고 확정했으므로 기본값은 단순 승패 카운트(9.2절)이지만, 최종 결정은 아님
+
+---
+
+## 9. PvP 로비 설계 (기존 소재 재사용 최우선)
+
+> 사용자 요청: *"랭킹시스템이나 그런거를 나타내는 로비가 있으면 좋을듯"* → *"최대한 지금있는 소재를 이용한 설계를 우선시해보자"*. 이 절은 새 코드를 최소화하는 방향으로, 코드베이스에 이미 존재하는 것과 존재하지 않는 것을 구분해 설계한다.
+
+### 9.1 재사용 가능한 것 vs 진짜 새로 만들어야 하는 것
+
+| 구성요소 | 상태 | 근거 |
+|---|---|---|
+| 랭킹 SQL/페이지네이션 패턴 | **재사용** | `rogueserver`의 `db/daily.go`(`FetchRankings`/`FetchRankingPageCount`)가 이미 `RANK() OVER (ORDER BY ... DESC, timestamp)` + `LIMIT 10 OFFSET ?` 페이지네이션과 `{rank, username, score, wave}` 응답 모양을 구현해뒀다 — 데일리런 전용이지만 패턴 자체(윈도우 함수로 순위 매기기, 카테고리별 분기, 페이지 수 계산)는 그대로 복제 가능. `api/daily/rankings.go`/`rankingspagecount.go`가 그 얇은 서비스 레이어. |
+| 랭킹 UI의 스크롤 리스트 구조 | **재사용** | `src/ui/handlers/run-history-ui-handler.ts` — 고정 행 수, `scrollCursor`/`setCursor`로 위아래 스크롤, 행마다 별도 컨테이너, 커서 하이라이트 위치를 `4 + (cursor+scrollCursor)*56`처럼 계산하는 구조. 랭킹 목록도 "고정 폭 행이 여러 개, 스크롤, 커서로 선택" 형태라 그대로 뼈대로 쓸 수 있다. |
+| 방 생성 / 코드로 입장 | **완전 재사용, 신규 코드 없음** | `src/net/pvp-room-manager.ts`의 `createRoom(mode)`/`joinRoom(roomId)`가 이미 동작한다. 로비 화면에서는 이 기존 메서드를 호출하는 버튼 두 개만 있으면 된다. |
+| PvP "점수"(랭킹의 기준값) | **진짜 신규** | PvP 배틀 결과를 집계하는 저장소가 지금까지 전혀 없다(로드맵 9️⃣가 애초에 "신규 - 별도 레이팅 데이터 계층"이라고 표시해둔 부분) — 유일하게 재사용할 기존 소재가 없는 부분. 9.2절에서 이것조차 최대한 기존 패턴을 베끼는 방법을 쓴다. |
+| 오픈방 목록 / 매치메이킹 큐 표시 | **1차 로비 범위에서 제외** | `pvp-server/src/room-manager.ts`의 `RoomManager`는 `createRoom`/`getRoom`/`deleteIfEmpty`만 있고 방을 나열하는 기능 자체가 없다. `protocol.ts`/`schema.ts`의 메시지 목록에도 `LIST_ROOMS`류가 없다 — "코드 생성 → 코드 공유"만 되는 구조라서, 재사용할 기존 소재가 전혀 없다. 만들려면 `pvp-server`의 프로토콜 자체를 확장해야 하는데, 이 세션 전체에 걸린 "`pvp-server`는 건드리지 않는다"는 제약과 정면으로 부딪힌다. |
+
+### 9.2 PvP "점수"조차 새 알고리즘을 설계하지 않는다
+
+유일한 신규 요소인 PvP 전적 집계도, Elo/Glicko 같은 레이팅 알고리즘을 새로 설계하는 대신 이미 검증된 `accountDailyRuns` 테이블 패턴을 그대로 복제한다:
+
+```sql
+-- db_setup.go의 accountDailyRuns 패턴을 그대로 복제
+CREATE TABLE IF NOT EXISTS pvpRecords (
+  uuid BINARY(16) NOT NULL PRIMARY KEY,
+  wins INT(11) NOT NULL DEFAULT 0,
+  losses INT(11) NOT NULL DEFAULT 0,
+  FOREIGN KEY (uuid) REFERENCES accounts (uuid) ON DELETE CASCADE ON UPDATE CASCADE
+)
+```
+
+순위는 `db/daily.go`의 `RANK() OVER (ORDER BY ... DESC, timestamp)` 쿼리를 승수 기준(`wins DESC`)으로 그대로 복제해 매긴다 — 새 레이팅 계산 로직이 전혀 없다. 이렇게 하면 "진짜로 새로 설계해야 하는 것"이 테이블 스키마 하나로 줄어든다. Elo 같은 실제 레이팅은, 단순 승패 카운트로는 부족하다는 게 실제로 확인되면 그때 얹는 2단계로 미룬다(8절 미결 사항 참고).
+
+### 9.3 로비 화면 구성 (1차 범위)
+
+기존 소재로 채울 수 있는 항목만 넣는다:
+
+- **PvP 랭킹 패널**: 9.1의 `RunHistoryUiHandler` 구조 재사용 + 9.2의 새 `pvpRecords` 테이블을 `daily/rankings`와 동일한 패턴으로 노출하는 `GET /pvp/rankings` 신규 엔드포인트.
+- **방 만들기 / 코드로 입장**: 기존 `pvp-room-manager.ts`를 그대로 호출.
+- **팀 빌더로 이동**: 이번 세션에서 구현한 Global Collection(2장)을 사용할 팀 빌더 화면(로드맵 2단계, 아직 미구현)으로 가는 진입점만 마련.
+
+**1차 범위에서 뺀 것**: 오픈방 목록, 매치메이킹 큐 표시, 리플레이/관전 — 전부 재사용할 기존 소재가 없고 `pvp-server` 프로토콜 확장이 필요해서, 로드맵 7️⃣·8️⃣ 단계로 남겨둔다. 로비는 그 두 기능이 실제로 생기면 그때 패널을 추가하는 형태로 확장하면 된다.
