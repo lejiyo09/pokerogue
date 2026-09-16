@@ -169,9 +169,25 @@ interface PvpItemUnlocks {
 
 **최종 결정(사용자 확정): 마인라인 VGC/Pokémon Champions 룰셋을 기준으로 삼는다.** 즉 새 allow-list를 처음부터 창작하지 않고, "VGC에서 실제로 사용 가능한 지닌 도구(held item) 목록"을 1차 필터로 삼아 PokéRogue의 `modifierTypes` 레지스트리를 대조한다 — VGC에 있는 종류(회복 열매류 제외, 일반 지닌 도구, 각종 부스트 아이템 등)에 대응하는 PokéRogue 항목만 우선 반입 허용 후보로 놓고, PokéRogue 고유의 로그라이크 전용 아이템(Endless 누적형, 보이드/황금 열매류 등 마인라인에 대응물이 없는 것)은 기본적으로 제외한다. 정확한 매핑(레지스트리 전수 조사)은 구현 단계 작업이지만, 판단 기준 자체는 이걸로 확정됐다 — 임의 기준으로 새로 정하지 않는다.
 
+### 3.2.1 레지스트리 전수 조사 (1차 — 코드로 확정 가능한 부분까지)
+
+`src/modifier/modifier-type.ts`의 `modifierTypes` 레지스트리 111개 항목 전체를 확인했다. **"어떤 항목이 애초에 포켓몬 한 마리에 지속적으로 들려지는 held item인가"는 코드만으로 100% 확정할 수 있다** — `src/modifier/modifier.ts`에서 `PokemonHeldItemModifier`를 상속하는 클래스 목록(`BerryModifier`, `AttackTypeBoosterModifier`, `StatBoosterModifier`, `PokemonMoveAccuracyBoosterModifier` 등 28개 클래스)을 확인하면, 각 레지스트리 항목이 그중 하나를 생성하는지 아닌지로 기계적으로 갈린다. 이걸로 확정한 것:
+
+- **held item이 아니라서 PvP 반입 대상 자체가 아닌 것** (코드로 확정, 재론 불필요):
+  - PvE 소모성 인벤토리: 몬스터볼류, 사탕류, 회복/PP/EXP 아이템 전부(포션·리바이브·에테르·엘릭서·PP업 등), 리펠/루어, TM, 기억 버섯
+  - 계정/파티 전역 패시브(특정 포켓몬이 아니라 계정 전체에 적용 — 확인 결과 전부 `PokemonHeldItemModifier`가 아닌 그냥 `ModifierType`이었다): `HEALING_CHARM`, `CANDY_JAR`, `BERRY_POUCH`, `COIN_CASE`, `LOCK_CAPSULE`, `AMULET_COIN`, `MAP`, `IV_SCANNER`, 각종 매력(참) 아이템
+  - 계정 단위 기믹 해금 아이템(`MEGA_BRACELET`/`DYNAMAX_BAND`/`TERA_ORB`) — 이건 held item이 아니라 5장의 기믹 락 프레임워크가 다루는 대상이라 애초에 이 절의 범위가 아님
+  - 트레이너 전용(`ENEMY_*`)과 미스터리 인카운터 전용(`MYSTERY_ENCOUNTER_*`) — 플레이어가 애초에 들 수 없음
+  - `MINI_BLACK_HOLE`(상대 held item 자동 강탈) — 로그라이크 전용의 명백히 밸런스 파괴적인 아이템, 반입 후보에서 제외
+- **held item으로 확정된 것** (반입 검토 대상): `SPECIES_STAT_BOOSTER`류, `ATTACK_TYPE_BOOSTER`, `BERRY`, `MYSTICAL_ROCK`, `SCOPE_LENS`, `LEEK`, `EVIOLITE`, `SOUL_DEW`, `GRIP_CLAW`, `WIDE_LENS`, `MULTI_LENS`, `FOCUS_BAND`, `QUICK_CLAW`, `KINGS_ROCK`, `LEFTOVERS`, `SHELL_BELL`, `TOXIC_ORB`, `FLAME_ORB`, `WHITE_HERB`, `REVIVER_SEED` 등
+
+**여기서 중요한 재발견**: held item으로 확정된 것 중 일부(`BASE_STAT_BOOSTER`, `EvoTrackerModifier`류 등)는 **마인라인에 아예 대응물이 없는 PokéRogue 고유 발명품**이다 — "VGC 기준으로 대조한다"는 원래 결정이 전제하는 "마인라인에 있는 종류인지 확인" 자체가 이런 항목에는 성립하지 않는다. 즉 이 서브셋은 사실 확인(팩트체크) 문제가 아니라 **"로그라이크 전용 밸런스 요소를 PvP에 남겨둘지"라는 별도의 정책 결정**이 필요하다 — 8절 미결 사항에 추가했다.
+
+**막힌 부분**: 마인라인에 실제로 대응물이 있는 held item들(베리류, 리프토버 등 표준 지닌 도구류)의 정확한 현재 VGC 밴/제한 여부는, 이 세션의 네트워크 egress 정책상 Bulbapedia·Victory Road·MetaVGC 등 레귤레이션 문서 사이트에 전부 접근이 막혀 있어(`EGRESS_BLOCKED`) 확인하지 못했다. 웹 검색으로 확인 가능했던 것은 딱 하나 — **현재 VGC(Pokémon Champions 레귤레이션 M-C 기준)는 "아이템 조항(Item Clause)": 팀 내 같은 종류 아이템을 든 포켓몬이 둘 이상일 수 없다**는 규칙뿐이고, 이건 이미 3.3절에 반영돼 있던 내용과 정확히 일치한다(선확정). 나머지 개별 아이템의 밴 목록은 접근 가능한 소스가 생기면 마저 채워야 하는 실제 미완료 항목이다 — 여기서 목록을 지어내지 않는다.
+
 ### 3.3 팀 내 중복 아이템 금지 — 서버 검증 지점
 
-이건 6장(`pvp-server/` 요구사항)에서 다룬다: 클라이언트가 `SUBMIT_TEAM`으로 보내는 `PvpPartyMemberDto[]`(`pvp-server/src/protocol.ts`)에 held item 필드가 추가된다면, `pvp-server`가 그 배열을 받는 시점에 (a) 계정이 그 아이템을 언락했는지, (b) 같은 아이템이 팀 내에서 중복되지 않는지를 검증해야 한다.
+이건 6장(`pvp-server/` 요구사항)에서 다룬다: 클라이언트가 `SUBMIT_TEAM`으로 보내는 `PvpPartyMemberDto[]`(`pvp-server/src/protocol.ts`)에 held item 필드가 추가된다면, `pvp-server`가 그 배열을 받는 시점에 (a) 계정이 그 아이템을 언락했는지, (b) 같은 아이템이 팀 내에서 중복되지 않는지를 검증해야 한다. (3.2.1절에서 실제 VGC 검색으로도 이 "아이템 조항"이 확인됐다.)
 
 ---
 
@@ -274,6 +290,8 @@ interface PvpRuleset {
 - ~~메가/폼체인지, 융합체를 "같은 종"으로 취급할지~~ → 2.6절에서 코드 검증 완료: 메가·폼체인지는 `species` 필드가 이미 동일해 추가 작업 없이 해소, 융합체는 `species`+`fusionSpecies` 둘 다 검사하는 것으로 해소
 - ~~리전폼(알로라/가라르/히스이/팔데아)을 기본종과 같은 그룹으로 묶을지~~ → **사용자 확정: 별개 종으로 취급(묶지 않음)**. 신규 매핑 테이블 불필요, 기존 `SpeciesId` 비교만으로 충분(2.6절 ②).
 - 9.2절의 "승-패 카운트만으로 충분한가, 아니면 처음부터 Elo/Glicko 같은 실제 레이팅이 필요한가" — 사용자가 "지금있는 소재를 최대한 활용"을 우선하라고 확정했으므로 기본값은 단순 승패 카운트(9.2절)이지만, 최종 결정은 아님
+- 3.2.1절에서 새로 발견: `BASE_STAT_BOOSTER`류처럼 마인라인에 대응물이 없는 PokéRogue 고유 held item을 PvP에 남겨둘지 — VGC 대조로는 답이 안 나오는 별도 밸런스 정책 결정
+- 3.2.1절에서 막힌 부분: 마인라인 대응 held item들의 정확한 현재 VGC 밴 목록 — 이 세션에서는 관련 사이트 접근이 전부 막혀 확인 불가, 접근 가능해지면 마저 조사 필요
 
 ---
 
