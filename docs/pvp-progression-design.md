@@ -260,8 +260,8 @@ interface PvpRuleset {
 | 단계 | 내용 | 주요 작업 위치 |
 |---|---|---|
 | ~~0️⃣~~ | ~~세이브 슬롯 파티 재사용 MVP (2.4절)~~ — **판단: 건너뛴다.** 근거는 아래 참고 | — |
-| 1️⃣ | Global Pokémon Collection | `rogueserver`(새 테이블/API) + `pokerogue`(입고 트리거, 컬렉션 조회 UI) |
-| 2️⃣ | PvP Team Builder | `pokerogue`(신규 UI, 0단계를 했다면 그 UI를 확장) |
+| 1️⃣ | Global Pokémon Collection — **구현 완료** | `rogueserver`(새 테이블/API) + `pokerogue`(입고 트리거, 컬렉션 조회 UI) |
+| 2️⃣ | PvP Team Builder — **구현 완료** (`PvpTeamBuilderUiHandler`, 브라우저에서 렌더링/선택/제출까지 실제 검증 완료) | `pokerogue`(신규 UI, 0단계를 했다면 그 UI를 확장) |
 | 3️⃣ | PvP Ruleset / 정규화 | `pokerogue`(4장의 변환 로직) + `pvp-server`(ruleset 배포/검증, 별도 승인 필요) |
 | 4️⃣ | 온라인 1v1 Single | 이미 대부분 존재 (`pvp-server/`, `pvp-online-battle-design.md` 참고) |
 | 5️⃣ | 온라인 1v1 Double | `pvp-server`(기존 `Battle.double`/`BattlerIndex` 확장, 설계 문서 §11 기준) |
@@ -269,7 +269,7 @@ interface PvpRuleset {
 | 7️⃣ | Random Matchmaking | 신규 — `pvp-server`에 매칭 큐 필요 |
 | 8️⃣ | Replay / Spectator | 신규 — 턴 커맨드 로그를 저장/재생하는 기능, `SUBMIT_COMMAND` 로그를 누적 저장하면 기반은 이미 있음 |
 | 9️⃣ | Ranked / 시즌 | 신규 — 별도 레이팅 데이터 계층 |
-| 🔟 | PvP 로비 (9장 참고) | `rogueserver`(9.2의 신규 랭킹 테이블/API) + `pokerogue`(9.3의 신규 로비 UI) — 6️⃣/9️⃣를 한 화면으로 묶는 것이라 그 둘의 최소 기반이 끝난 뒤가 자연스럽다 |
+| 🔟 | PvP 로비 (9장 참고) — **구현 완료** (`PvpLobbyUiHandler`: 랭킹 패널 + 방 생성/입장, 브라우저에서 렌더링/네비게이션/3개 액션 콜백 전부 검증 완료) | `rogueserver`(9.2의 신규 랭킹 테이블/API) + `pokerogue`(9.3의 신규 로비 UI) — 6️⃣/9️⃣를 한 화면으로 묶는 것이라 그 둘의 최소 기반이 끝난 뒤가 자연스럽다 |
 
 **1~3단계가 이 문서의 범위**이고, 이 문서가 다루지 않는 4단계 이후는 기존 `pvp-online-battle-design.md`가 이미 상당 부분 설계해두었다. 로비(🔟)는 9장에서 별도로 다룬다.
 
@@ -331,6 +331,8 @@ CREATE TABLE IF NOT EXISTS pvpRecords (
 
 - **PvP 랭킹 패널**: 9.1의 `RunHistoryUiHandler` 구조 재사용 + 9.2의 새 `pvpRecords` 테이블을 `daily/rankings`와 동일한 패턴으로 노출하는 `GET /pvp/rankings` 신규 엔드포인트.
 - **방 만들기 / 코드로 입장**: 기존 `pvp-room-manager.ts`를 그대로 호출.
-- **팀 빌더로 이동**: 이번 세션에서 구현한 Global Collection(2장)을 사용할 팀 빌더 화면(로드맵 2단계, 아직 미구현)으로 가는 진입점만 마련.
+- **팀 빌더로 이동**: 팀 빌더(로드맵 2단계)는 이미 구현되어 있고, 방이 준비되면(`onRoomReady`) `title-phase.ts`가 자동으로 열어준다 — 로비 자체에는 별도 "팀 빌더로 이동" 버튼을 두지 않는다.
+
+**구현 완료 (이번 세션)**: `src/ui/handlers/pvp-lobby-ui-handler.ts`(`PvpLobbyUiHandler`) — 상단에 읽기 전용 랭킹 패널(top 3, `pokerogueApi.pvpRankings`), 하단에 고정 3행 액션 메뉴(방 생성/코드로 입장/취소)를 커서로 선택하는 단일 화면. `title-phase.ts`의 "PvP Battle (beta)" 메뉴가 기존 `OptionSelectUiHandler` 기반 `showPvpMenu()` 대신 이 화면(`UiMode.PVP_LOBBY`)을 연다. 플레이 가능 캔버스가 320x180 게임 유닛뿐이라 `PvpTeamBuilderUiHandler`의 56유닛짜리 아이콘 행 크기를 그대로 재사용하면 화면을 몇 배나 벗어난다는 걸 브라우저 검증 중 실측으로 확인했고, 랭킹/액션 행 모두 훨씬 더 촘촘한 높이(16/26유닛)로 다시 설계해 한 화면(스크롤 없이) 안에 전부 들어가도록 했다. 랭킹 있음/없음 상태, 커서 이동, ACTION 입력 시 3개 콜백(onCreateRoom/onJoinRoom/onCancel) 모두 헤드리스 Chromium + 실제 `PokemonData`/랭킹 fixture로 브라우저에서 직접 검증 완료.
 
 **1차 범위에서 뺀 것**: 오픈방 목록, 매치메이킹 큐 표시, 리플레이/관전 — 전부 재사용할 기존 소재가 없고 `pvp-server` 프로토콜 확장이 필요해서, 로드맵 7️⃣·8️⃣ 단계로 남겨둔다. 로비는 그 두 기능이 실제로 생기면 그때 패널을 추가하는 형태로 확장하면 된다.

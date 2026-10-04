@@ -25,6 +25,7 @@ import { getPvpSession, setPvpSession } from "#net/pvp-session";
 import { setUpPvpParty } from "#net/pvp-team-setup";
 import { vouchers } from "#system/voucher";
 import type { OptionSelectItem, OptionSelectModeConfig } from "#types/ui-types";
+import type { PvpLobbyArgs } from "#ui/pvp-lobby-ui-handler";
 import type { PvpTeamBuilderArgs } from "#ui/pvp-team-builder-ui-handler";
 import { SaveSlotUiMode } from "#ui/save-slot-select-ui-handler";
 import { isLocalServerConnected } from "#utils/common";
@@ -196,7 +197,7 @@ export class TitlePhase extends Phase {
         // TODO: Localize once this feature is out of early development (see docs/pvp-online-battle-design.md).
         label: "PvP Battle (beta)",
         handler: () => {
-          this.showPvpMenu();
+          this.showPvpLobby();
           return true;
         },
         keepOpen: true,
@@ -417,37 +418,28 @@ export class TitlePhase extends Phase {
   // Pokémon Collection, docs/pvp-progression-design.md §2/§9), not a hardcoded template.
   // Double battles and a proper reward-free battle-end flow remain unimplemented.
 
-  private showPvpMenu(): void {
-    const { ui } = globalScene;
-    const pvpOptions: OptionSelectItem[] = [
-      {
-        label: "Create Room (Single Battle)",
-        handler: () => {
-          this.startPvpCreateRoom("single");
-          return true;
-        },
+  /**
+   * The PvP lobby (rankings panel + room create/join entry points) - see `PvpLobbyUiHandler` and
+   * docs/pvp-progression-design.md §9.
+   */
+  private showPvpLobby(): void {
+    globalScene.ui.setOverlayMode(UiMode.PVP_LOBBY, {
+      onCreateRoom: () => {
+        globalScene.ui.revertMode();
+        this.startPvpCreateRoom("single");
       },
-      {
-        label: "Join Room by Code",
-        handler: () => {
-          this.startPvpJoinRoom();
-          return true;
-        },
+      onJoinRoom: () => {
+        globalScene.ui.revertMode();
+        this.startPvpJoinRoom();
       },
-      {
-        label: i18next.t("menu:cancel"),
-        handler: () => {
-          globalScene.phaseManager.toTitleScreen();
-          // `toTitleScreen()` only queues a fresh `TitlePhase`; it doesn't start it - this
-          // (currently-running) `TitlePhase` still has to end for the phase manager to advance
-          // to it, exactly like the "New Game" submenu's own Cancel button (above) does.
-          super.end();
-          return true;
-        },
+      onCancel: () => {
+        globalScene.phaseManager.toTitleScreen();
+        // `toTitleScreen()` only queues a fresh `TitlePhase`; it doesn't start it - this
+        // (currently-running) `TitlePhase` still has to end for the phase manager to advance to
+        // it, exactly like the "New Game" submenu's own Cancel button does.
+        super.end();
       },
-    ];
-    const config: OptionSelectModeConfig = { options: pvpOptions, yOffset: 48 };
-    ui.setOverlayMode(UiMode.OPTION_SELECT, config);
+    } satisfies PvpLobbyArgs);
   }
 
   private startPvpCreateRoom(mode: PvpMode): void {

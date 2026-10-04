@@ -50,4 +50,5 @@ export enum UiMode {
   PVP_JOIN_FORM,
   CHEAT_LEVEL_FORM,
   PVP_TEAM_BUILDER,
+  PVP_LOBBY,
 }
