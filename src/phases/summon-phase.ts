@@ -95,7 +95,9 @@ export class SummonPhase extends PartyMemberPokemonPhase {
       });
       globalScene.time.delayedCall(750, () => this.summon());
     } else if (
+      // A PvP opponent is summoned the same way a trainer's Pokemon is (see docs/pvp-online-battle-design.md §9.2).
       globalScene.currentBattle.battleType === BattleType.TRAINER
+      || globalScene.currentBattle.battleType === BattleType.PVP
       || globalScene.currentBattle.mysteryEncounter?.encounterMode === MysteryEncounterMode.TRAINER_BATTLE
     ) {
       const trainerName = globalScene.currentBattle.trainer?.getName(

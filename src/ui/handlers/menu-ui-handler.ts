@@ -12,6 +12,7 @@ import { UiMode } from "#enums/ui-mode";
 import type { ConfirmModeConfig, OptionSelectItem, OptionSelectModeConfig } from "#types/ui-types";
 import type { AwaitableUiHandler } from "#ui/awaitable-ui-handler";
 import { BgmBar } from "#ui/bgm-bar";
+import { showCheatMenu } from "#ui/cheat-menu";
 import { OptionSelectUiHandler } from "#ui/option-select-ui-handler";
 import { addTextObject } from "#ui/text";
 import { addWindow, WindowVariant } from "#ui/ui-theme";
@@ -504,6 +505,17 @@ export class MenuUiHandler extends OptionSelectUiHandler {
           const yOffset = this.menuMessageBox.displayHeight + 1;
           const optionSelectConfig: OptionSelectModeConfig = { options, yOffset };
           globalScene.ui.setOverlayMode(UiMode.OPTION_SELECT, optionSelectConfig);
+          return true;
+        },
+        keepOpen: true,
+      });
+    }
+    if (bypassLogin || loggedInUser?.cheatsEnabled) {
+      communityOptions.push({
+        label: "Cheats",
+        handler: () => {
+          ui.playSelect();
+          showCheatMenu(this.menuMessageBox.displayHeight + 1);
           return true;
         },
         keepOpen: true,

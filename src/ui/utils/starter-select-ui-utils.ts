@@ -1,3 +1,4 @@
+import { loggedInUser } from "#app/account";
 import { VALUE_REDUCTION_MAX } from "#app/constants";
 import { globalScene } from "#app/global-scene";
 import { settings } from "#app/global-settings-manager";
@@ -436,6 +437,10 @@ export function getStarterDetailsFromPreferences(
 
 /** @returns The limit on starter points available for the current run, taking challenges into account */
 export function getRunValueLimit(): number {
+  if (loggedInUser?.cheatsEnabled) {
+    return Number.MAX_SAFE_INTEGER;
+  }
+
   const valueLimit = new ValueHolder(0);
   switch (globalScene.gameMode.modeId) {
     case GameModes.ENDLESS:

@@ -8,12 +8,29 @@ import i18next from "i18next";
 
 // TODO: Consider replacing server error strings with numeric error codes for better maintainability
 // TODO: Centralize server error constants
-const ERR_INVALID_USERNAME = "invalid username";
-const ERR_INVALID_PASSWORD = "invalid password";
-const ERR_NO_ACCOUNT = "account doesn't exist";
-const ERR_PASSWORD_MISMATCH = "password doesn't match";
 const ERR_FAILED_TO_GENERATE_TOKEN = "failed to generate token";
 const ERR_FAILED_TO_ADD_SESSION = "failed to add account session";
+// Sent by the server the first time it ever sees this Firebase account (see
+// loginWithIdentity) - the login form never sends a nickname, so that first
+// sign-in has to happen via Register instead.
+const ERR_NO_ACCOUNT_YET = "invalid nickname";
+
+/** Maps a `signInWithFirebaseEmail` failure to a readable message. */
+function readableFirebaseSignInError(err: unknown): string {
+  const code = err && typeof err === "object" && "code" in err ? String(err.code) : "";
+  switch (code) {
+    case "auth/invalid-email":
+      return "The provided email is invalid";
+    case "auth/invalid-credential":
+    case "auth/user-not-found":
+    case "auth/wrong-password":
+      return i18next.t("menu:accountNonExistent");
+    case "auth/too-many-requests":
+      return i18next.t("menu:pleaseTryAgainLater");
+    default:
+      return i18next.t("menu:pleaseTryAgainLater");
+  }
+}
 
 export class LoginFormUiHandler extends OAuthProvidersUiHandler {
   public override getModalTitle(): string {
@@ -28,7 +45,7 @@ export class LoginFormUiHandler extends OAuthProvidersUiHandler {
   }
 
   public override getMargin(): [number, number, number, number] {
-    return [0, 20, 48, 0];
+    return [20, 20, 48, 0];
   }
 
   public override getButtonLabels(): string[] {
@@ -46,18 +63,12 @@ export class LoginFormUiHandler extends OAuthProvidersUiHandler {
     }
 
     switch (error) {
-      case ERR_INVALID_USERNAME:
-        return i18next.t("menu:invalidLoginUsername");
-      case ERR_INVALID_PASSWORD:
-        return i18next.t("menu:invalidLoginPassword");
-      case ERR_NO_ACCOUNT:
-        return i18next.t("menu:accountNonExistent");
-      case ERR_PASSWORD_MISMATCH:
-        return i18next.t("menu:unmatchingPassword");
       case ERR_FAILED_TO_GENERATE_TOKEN:
         return `${i18next.t("menu:serverErrorGenerateToken")}\n${i18next.t("menu:pleaseTryAgainLater")}`;
       case ERR_FAILED_TO_ADD_SESSION:
         return `${i18next.t("menu:serverErrorAddSession")}\n${i18next.t("menu:pleaseTryAgainLater")}`;
+      case ERR_NO_ACCOUNT_YET:
+        return "No account exists yet for this email - use Register instead";
     }
 
     return super.getReadableErrorMessage(error);
@@ -66,7 +77,11 @@ export class LoginFormUiHandler extends OAuthProvidersUiHandler {
   public override getInputFieldConfigs(): InputFieldConfig[] {
     const inputFieldConfigs: InputFieldConfig[] = [];
     inputFieldConfigs.push(
-      { label: i18next.t("menu:username") },
+      // No locales entry exists for a generic "Email" label (this fork's
+      // school-email-only login is a local customization, not something
+      // the upstream locales repo covers). maxLength: the default (20) is
+      // too short for "2026####@hanilgo.cnehs.kr" (25 chars).
+      { label: "Email", maxLength: 40 },
       {
         label: i18next.t("menu:password"),
         isPassword: true,
@@ -80,7 +95,6 @@ export class LoginFormUiHandler extends OAuthProvidersUiHandler {
       return false;
     }
     const config = args[0] as ModalConfig;
-    this.processExternalProvider();
     this.showInfoContainer(config);
     const originalLoginAction = this.submitAction;
     this.submitAction = () => {
@@ -96,22 +110,26 @@ export class LoginFormUiHandler extends OAuthProvidersUiHandler {
         globalScene.ui.playError();
       };
       if (!this.inputs[0].text) {
-        return onFail(i18next.t("menu:emptyUsername"));
+        return onFail("Email must not be empty");
       }
 
-      const [usernameInput, passwordInput] = this.inputs;
+      const [emailInput, passwordInput] = this.inputs;
 
-      pokerogueApi.account
-        .login({
-          username: usernameInput.text,
-          password: passwordInput.text,
-        })
+      // Dynamically imported so the Firebase SDK - unused by anyone who
+      // never opens this form - isn't part of the app's main eager bundle.
+      import("#app/firebase")
+        .then(({ signInWithFirebaseEmail }) => signInWithFirebaseEmail(emailInput.text, passwordInput.text))
+        .then(idToken => pokerogueApi.account.loginWithFirebase(idToken))
         .then(error => {
           if (!error && originalLoginAction) {
             originalLoginAction();
           } else {
             onFail(error);
           }
+        })
+        .catch(err => {
+          console.warn("Firebase sign-in failed!", err);
+          onFail(readableFirebaseSignInError(err));
         });
     };
 

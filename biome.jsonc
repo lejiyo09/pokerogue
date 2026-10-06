@@ -44,6 +44,8 @@
       "!!docs",
       "!!locales",
       "!!typedoc",
+      // Separate, independently-linted/tested project - see pvp-server/README.md
+      "!!pvp-server",
       // TODO: lint css and html?
       "!!*.css",
       "!!*.html",

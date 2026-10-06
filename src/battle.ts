@@ -244,6 +244,10 @@ export class Battle {
   }
 
   getBgmOverride(): string | null {
+    if (this.battleType === BattleType.PVP) {
+      // TODO: Use a dedicated PvP battle theme once one is available.
+      return null;
+    }
     if (this.isBattleMysteryEncounter() && this.mysteryEncounter?.encounterMode === MysteryEncounterMode.DEFAULT) {
       // Music is overridden for MEs during ME onInit()
       // Should not use any BGM overrides before swapping from DEFAULT mode

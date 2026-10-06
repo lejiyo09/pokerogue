@@ -9,7 +9,7 @@ import { PlayerGender } from "#enums/player-gender";
 import { UiMode } from "#enums/ui-mode";
 import { executeIf, sessionIdKey } from "#utils/common";
 import { getCookie, removeCookie } from "#utils/cookies";
-import i18next, { t } from "i18next";
+import { t } from "i18next";
 
 export class LoginPhase extends Phase {
   public readonly phaseName = "LoginPhase";
@@ -93,7 +93,10 @@ export class LoginPhase extends Phase {
     };
 
     if (this.showText) {
-      ui.showText(i18next.t("menu:logInOrCreateAccount"));
+      // Not i18next.t("menu:logInOrCreateAccount") - that upstream string
+      // claims no personal information is required, which is no longer true
+      // now that registration needs a school email (see registration-form-ui-handler.ts).
+      ui.showText("Log in or create an account to start.");
     }
 
     audioManager.playSound("ui/menu_open");

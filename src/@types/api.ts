@@ -1,3 +1,4 @@
+import type { PokemonData } from "#system/pokemon-data";
 import type { SessionSaveData, SystemSaveData } from "#types/save-data";
 
 export interface UserInfo {
@@ -6,6 +7,8 @@ export interface UserInfo {
   discordId: string;
   googleId: string;
   hasAdminRole: boolean;
+  /** Full gameplay-cheat access (see `GameData.unlockEverythingForCheats`) - granted to exactly one designated school email; see rogueserver's `cheatAccountEmail`. */
+  cheatsEnabled: boolean;
 }
 
 export interface TitleStatsResponse {
@@ -148,3 +151,48 @@ export interface VerifySystemSavedataResponse {
 }
 
 // #endregion System Save API
+
+// #region PvP Collection API
+// See `docs/pvp-progression-design.md` §2 for the design this implements.
+
+/**
+ * One individual permanently banked into a player's PvP Global Pokémon Collection.
+ * @see `docs/pvp-progression-design.md` §2.1
+ */
+export interface BankedPokemon {
+  /** A client-generated identifier stable across repeated syncs of the same individual. */
+  uid: string;
+  data: PokemonData;
+  originRunSeed: string;
+  originTimestamp: number;
+  /** The individual's level within its originating PvE run, kept for display only - never used in PvP battle calculations. */
+  pveLevel: number;
+}
+
+export type GetPvpCollectionResponse = BankedPokemon[];
+
+export interface UpsertPvpCollectionRequest {
+  entries: BankedPokemon[];
+}
+
+// #endregion PvP Collection API
+
+// #region PvP Rankings API
+// See `docs/pvp-progression-design.md` §9 for the design this implements.
+
+/** One row of the PvP lobby's ranking list. */
+export interface PvpRanking {
+  rank: number;
+  username: string;
+  wins: number;
+  losses: number;
+}
+
+export interface GetPvpRankingsRequest {
+  /** 1-indexed; defaults to `1` server-side if omitted. */
+  page?: number;
+}
+
+export type GetPvpRankingsResponse = PvpRanking[];
+
+// #endregion PvP Rankings API

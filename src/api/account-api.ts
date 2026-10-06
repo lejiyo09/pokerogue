@@ -54,25 +54,83 @@ export class PokerogueAccountApi extends ApiBase {
   /**
    * Send a login request.
    * Sets the session cookie on success.
+   *
+   * Retries with a fixed delay on a network-level failure (e.g. a blocked
+   * `fetch`) only - never on a real rejection the server sent back, like a
+   * wrong password. Some hosting platforms' free tiers spin an idle backend
+   * down and take 50+ seconds to wake it back up on the next request, during
+   * which the first request of a session can fail this way before the
+   * backend is reachable at all.
    * @param loginData The {@linkcode AccountLoginRequest} to send
+   * @param maxAttempts Maximum number of attempts, including the first - exposed for testing
+   * @param retryDelayMs Delay between attempts in milliseconds - exposed for testing
    * @returns An error message if something went wrong
    */
-  public async login(loginData: AccountLoginRequest): Promise<string | null> {
-    try {
-      const response = await this.doPost("/account/login", loginData, "form-urlencoded");
+  public async login(loginData: AccountLoginRequest, maxAttempts = 12, retryDelayMs = 5_000): Promise<string | null> {
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        const response = await this.doPost("/account/login", loginData, "form-urlencoded");
 
-      if (response.ok) {
-        const loginResponse = (await response.json()) as AccountLoginResponse;
-        setCookie(SESSION_ID_COOKIE_NAME, loginResponse.token);
-        return null;
+        if (response.ok) {
+          const loginResponse = (await response.json()) as AccountLoginResponse;
+          setCookie(SESSION_ID_COOKIE_NAME, loginResponse.token);
+          return null;
+        }
+        console.warn("Login failed!", response.status, response.statusText);
+        return response.text();
+      } catch (err) {
+        console.warn("Login failed!", err);
+        if (attempt === maxAttempts) {
+          return "Unknown login error!";
+        }
+        await new Promise(resolve => setTimeout(resolve, retryDelayMs));
       }
-      console.warn("Login failed!", response.status, response.statusText);
-      return response.text();
-    } catch (err) {
-      console.warn("Login failed!", err);
     }
 
     return "Unknown login error!";
+  }
+
+  /**
+   * Exchange a Firebase ID token (from `signInWithFirebaseEmail` or
+   * `registerWithFirebaseEmail` in `#app/firebase`) for a session. `nickname`
+   * is only used - and required - the first time a given Firebase account is
+   * seen, since that's when the server creates the account record; a
+   * returning login can omit it. Sets the session cookie on success.
+   *
+   * Retries with a fixed delay on a network-level failure only - see {@linkcode login}.
+   * @param idToken The Firebase ID token to send
+   * @param nickname The account nickname to register with, on a first sign-in only
+   * @param maxAttempts Maximum number of attempts, including the first - exposed for testing
+   * @param retryDelayMs Delay between attempts in milliseconds - exposed for testing
+   * @returns An error message if something went wrong
+   */
+  public async loginWithFirebase(
+    idToken: string,
+    nickname = "",
+    maxAttempts = 12,
+    retryDelayMs = 5_000,
+  ): Promise<string | null> {
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        const response = await this.doPost("/account/login/firebase", { idToken, nickname }, "form-urlencoded");
+
+        if (response.ok) {
+          const loginResponse = (await response.json()) as AccountLoginResponse;
+          setCookie(SESSION_ID_COOKIE_NAME, loginResponse.token);
+          return null;
+        }
+        console.warn("Firebase sign-in failed!", response.status, response.statusText);
+        return response.text();
+      } catch (err) {
+        console.warn("Firebase sign-in failed!", err);
+        if (attempt === maxAttempts) {
+          return "Unknown sign-in error!";
+        }
+        await new Promise(resolve => setTimeout(resolve, retryDelayMs));
+      }
+    }
+
+    return "Unknown sign-in error!";
   }
 
   /**
